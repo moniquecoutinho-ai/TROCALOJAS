@@ -2617,6 +2617,145 @@
 
         // Render App
         ReactDOM.render(<App />, document.getElementById('root'));
-    </script>
+    </script> 
+    <script type="module">
+  // Firebase via CDN (modular) – não precisa npm
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+  import {
+    getAuth,
+    signInWithEmailAndPassword,
+    onAuthStateChanged,
+    signOut
+  } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+  import {
+    getFirestore,
+    collection,
+    addDoc,
+    getDocs,
+    query,
+    serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+  // SUA CONFIG DO FIREBASE (a do seu console)
+  const firebaseConfig = {
+    apiKey: "AIzaSyAp167u0g8YbnPwgNNa9ToFQbqJrYJYPAQ",
+    authDomain: "troca-facil-2ef6b.firebaseapp.com",
+    projectId: "troca-facil-2ef6b",
+    storageBucket: "troca-facil-2ef6b.firebasestorage.app",
+    messagingSenderId: "112709592276",
+    appId: "1:112709592276:web:9af5f9b5c62a95df40fbad"
+  };
+
+  // Inicializa
+  const app  = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db   = getFirestore(app);
+
+  // ===== Funções que o seu sistema/console vai usar =====
+  async function login(email, senha) {
+    return signInWithEmailAndPassword(auth, email, senha);
+  }
+
+  async function sair() {
+    return signOut(auth);
+  }
+
+  async function salvarTrocaFirestore(storeId, troca) {
+    const ref = collection(db, "stores", storeId, "exchanges");
+    await addDoc(ref, {
+      ...troca,
+      createdAt: serverTimestamp(),
+      createdBy: auth.currentUser?.uid || null
+    });
+    console.log("Troca salva em", storeId);
+  }
+
+  async function listarTrocas(storeId) {
+    const ref  = collection(db, "stores", storeId, "exchanges");
+    const snap = await getDocs(query(ref));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  }
+
+  // (Opcional) ver sessão no console
+  onAuthStateChanged(auth, (user) => {
+    if (user) console.log("Logado:", user.email);
+    else      console.log("Deslogado");
+  });
+
+  // Disponibiliza no navegador e nos seus scripts
+  window.TrocaCloud = { login, sair, salvarTrocaFirestore, listarTrocas };
+</script>
+    <script type="module">
+  // Firebase via CDN (modular) – não precisa npm
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+  import {
+    getAuth,
+    signInWithEmailAndPassword,
+    onAuthStateChanged,
+    signOut
+  } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+  import {
+    getFirestore,
+    collection,
+    addDoc,
+    getDocs,
+    query,
+    serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+  // SUA CONFIG DO FIREBASE (a do seu console)
+  const firebaseConfig = {
+    apiKey: "AIzaSyAp167u0g8YbnPwgNNa9ToFQbqJrYJYPAQ",
+    authDomain: "troca-facil-2ef6b.firebaseapp.com",
+    projectId: "troca-facil-2ef6b",
+    storageBucket: "troca-facil-2ef6b.firebasestorage.app",
+    messagingSenderId: "112709592276",
+    appId: "1:112709592276:web:9af5f9b5c62a95df40fbad"
+  };
+
+  // Inicializa
+  const app  = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db   = getFirestore(app);
+
+  // ===== Funções que o seu site/console vai usar =====
+
+  // 1) Login com email/senha
+  async function login(email, senha) {
+    return signInWithEmailAndPassword(auth, email, senha);
+  }
+
+  // 2) Logout
+  async function sair() {
+    return signOut(auth);
+  }
+
+  // 3) Salvar troca na nuvem (stores/{storeId}/exchanges)
+  async function salvarTrocaFirestore(storeId, troca) {
+    const ref = collection(db, "stores", storeId, "exchanges");
+    await addDoc(ref, {
+      ...troca,
+      createdAt: serverTimestamp(),
+      createdBy: auth.currentUser?.uid || null
+    });
+    console.log("Troca salva em", storeId);
+  }
+
+  // 4) Listar trocas da loja
+  async function listarTrocas(storeId) {
+    const ref  = collection(db, "stores", storeId, "exchanges");
+    const snap = await getDocs(query(ref));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  }
+
+  // (Opcional) ver sessão no console
+  onAuthStateChanged(auth, (user) => {
+    if (user) console.log("Logado:", user.email);
+    else      console.log("Deslogado");
+  });
+
+  // Expor para seu app e para o Console do navegador (F12)
+  window.TrocaCloud = { login, sair, salvarTrocaFirestore, listarTrocas };
+</script>
 </body>
 </html>
