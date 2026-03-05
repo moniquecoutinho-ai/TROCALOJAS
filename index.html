@@ -1132,6 +1132,84 @@
         });
 window.TrocaCloud = { login, sair, salvarTrocaFirestore, listarTrocas, auth };
         console.log("🔥 Firebase inicializado com sucesso!");
+    </script> <!-- SUPABASE - INÍCIO -->
+    <script src="https://unpkg.com/@supabase/supabase-js@2.48.0/dist/umd/supabase.js"></script>
+    <script>
+      const SUPABASE_URL = 'https://hhvzbsdrsemicerejsme.supabase.co';
+      const SUPABASE_ANON_KEY = 'sb_publishable_-gFyd7xj48eV8GTed_kX8A_nJGWaZAc'; // sua publishable key
+
+      // cria o cliente Supabase disponível no navegador
+      window.supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+      // função para salvar a troca no Supabase
+      async function salvarTrocaSupabase(storeId, exchange) {
+        const supa = window.supabaseClient;
+
+        // 1) cabeçalho da troca em "exchanges"
+        const { data: inserted, error } = await supa
+          .from('exchanges')
+          .insert({
+            store_id: storeId,
+            sale_number: exchange.saleNumber,
+            customer_name: exchange.customerName,
+            customer_cpf: exchange.customerCPF || null,
+            sales_person: exchange.salesPerson,
+            date: exchange.date,
+            observations: exchange.observations || null,
+            out_total: exchange.outTotal,
+            in_total: exchange.inTotal,
+            difference: exchange.difference,
+            status: exchange.status
+          })
+          .select('id')
+          .single();
+
+        if (error) {
+          console.error('Erro ao salvar troca no Supabase:', error);
+          alert('⚠ Não foi possível salvar a troca no banco. Verifique a conexão.');
+          return;
+        }
+
+        const exchangeId = inserted.id;
+
+        // 2) itens de SAÍDA
+        if (exchange.outgoingItems && exchange.outgoingItems.length > 0) {
+          const outRows = exchange.outgoingItems.map(item => ({
+            exchange_id: exchangeId,
+            description: item.description,
+            value: item.value
+          }));
+
+          const { error: outErr } = await supa
+            .from('exchange_outgoing_items')
+            .insert(outRows);
+
+          if (outErr) {
+            console.error('Erro ao salvar itens de saída:', outErr);
+          }
+        }
+
+        // 3) itens de ENTRADA
+        if (exchange.incomingItems && exchange.incomingItems.length > 0) {
+          const inRows = exchange.incomingItems.map(item => ({
+            exchange_id: exchangeId,
+            description: item.description,
+            value: item.value,
+            condition: item.condition
+          }));
+
+          const { error: inErr } = await supa
+            .from('exchange_incoming_items')
+            .insert(inRows);
+
+          if (inErr) {
+            console.error('Erro ao salvar itens de entrada:', inErr);
+          }
+        }
+
+        console.log('✅ Troca salva no Supabase com id', exchangeId);
+      }
     </script>
+    <!-- SUPABASE - FIM -->
 </body>
 </html>
