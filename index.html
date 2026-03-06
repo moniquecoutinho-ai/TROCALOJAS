@@ -1,243 +1,629 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistema de Gestão de Trocas - Multi Lojas</title>
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Work+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --primary: #FF6B35;
-            --primary-dark: #E55A2B;
-            --secondary: #004E89;
-            --secondary-light: #1A6BA8;
-            --accent: #F7B32B;
-            --success: #06D6A0;
-            --danger: #EF476F;
-            --warning: #FFD23F;
-            --bg-dark: #0F1419;
-            --bg-card: #1A2332;
-            --bg-hover: #252F3F;
-            --text-primary: #FFFFFF;
-            --text-secondary: #A0AEC0;
-            --text-muted: #718096;
-            --border: #2D3748;
-            --shadow: rgba(0, 0, 0, 0.3);
-        }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sistema de Cupom de Troca M. Anjos</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: Arial, sans-serif;
+      background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+      color: #1a1a1a;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    header {
+      background: linear-gradient(135deg, #B8941C 0%, #D4AF37 100%);
+      padding: 30px 20px;
+      text-align: center;
+      border-radius: 15px;
+      margin-bottom: 30px;
+    }
+    h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      color: white;
+      margin-bottom: 5px;
+    }
+    .subtitle {
+      font-size: 1rem;
+      color: white;
+    }
+    .form-container {
+      background: white;
+      border-radius: 15px;
+      padding: 30px;
+      margin-bottom: 30px;
+      box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+    }
+    .form-section {
+      margin-bottom: 25px;
+    }
+    .form-section h2 {
+      color: #D4AF37;
+      font-size: 1.3rem;
+      margin-bottom: 15px;
+      border-left: 4px solid #D4AF37;
+      padding-left: 10px;
+    }
+    .lojas-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+    .loja-card {
+      background: #f5f5f5;
+      padding: 15px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      border: 3px solid transparent;
+      text-align: center;
+    }
+    .loja-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    }
+    .loja-card.selected {
+      background: #F4E4C1;
+      border-color: #D4AF37;
+      box-shadow: 0 5px 15px rgba(212, 175, 55, 0.3);
+    }
+    .loja-card h3 {
+      font-size: 1rem;
+      margin-bottom: 5px;
+      color: #1a1a1a;
+    }
+    .loja-card p {
+      font-size: 0.85rem;
+      color: #4a4a4a;
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #4a4a4a;
+      font-size: 0.9rem;
+      text-transform: uppercase;
+    }
+    input {
+      width: 100%;
+      padding: 12px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 1rem;
+      transition: all 0.3s ease;
+    }
+    input:focus {
+      outline: none;
+      border-color: #D4AF37;
+      box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.1);
+    }
+    .btn {
+      background: linear-gradient(135deg, #B8941C 0%, #D4AF37 100%);
+      color: white;
+      padding: 15px 40px;
+      border: none;
+      border-radius: 50px;
+      font-size: 1.1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      width: 100%;
+      text-transform: uppercase;
+    }
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(212, 175, 55, 0.4);
+    }
+    .alert {
+      padding: 15px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      display: none;
+    }
+    .alert.success {
+      background: #D1FAE5;
+      color: #065F46;
+      border-left: 4px solid #10B981;
+    }
+    .alert.error {
+      background: #FEE2E2;
+      color: #991B1B;
+      border-left: 4px solid #EF4444;
+    }
+    .alert.active {
+      display: block;
+    }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+    /* CUPOM DE IMPRESS O */
+    .cupom-preview {
+      background: white;
+      border: 4px solid #D4AF37;
+      border-radius: 15px;
+      padding: 30px;
+      margin: 30px auto;
+      max-width: 800px;
+      display: none;
+    }
+    .cupom-preview.active {
+      display: block;
+    }
+    .cupom-header {
+      text-align: center;
+      border-bottom: 3px solid #D4AF37;
+      padding-bottom: 20px;
+      margin-bottom: 25px;
+    }
+    .cupom-title {
+      font-size: 1.8rem;
+      color: #D4AF37;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .cupom-subtitle {
+      color: #4a4a4a;
+      font-size: 1rem;
+    }
+    .cupom-body {
+      margin: 25px 0;
+    }
+    .cupom-field {
+      margin-bottom: 15px;
+      padding: 12px;
+      background: #f5f5f5;
+      border-radius: 8px;
+    }
+    .cupom-field label {
+      font-size: 0.85rem;
+      color: #4a4a4a;
+      display: block;
+      margin-bottom: 5px;
+    }
+    .cupom-field .value {
+      font-size: 1.1rem;
+      color: #1a1a1a;
+      font-weight: 600;
+    }
+    .cupom-destaque {
+      text-align: center;
+      background: #F4E4C1;
+      padding: 20px;
+      border-radius: 10px;
+      margin: 20px 0;
+      border: 2px solid #D4AF37;
+    }
+    .cupom-destaque .label {
+      font-size: 0.9rem;
+      color: #1a1a1a;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .cupom-destaque .value {
+      font-size: 1.8rem;
+      color: #1a1a1a;
+      font-weight: 700;
+    }
+    .condicoes {
+      margin-top: 20px;
+      padding: 15px;
+      background: #f5f5f5;
+      border-radius: 8px;
+      border-left: 4px solid #D4AF37;
+    }
+    .condicoes h3 {
+      color: #1a1a1a;
+      margin-bottom: 10px;
+      font-size: 1rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .condicoes ul {
+      list-style: none;
+      padding: 0;
+    }
+    .condicoes li {
+      padding: 5px 0;
+      padding-left: 20px;
+      position: relative;
+      font-size: 0.85rem;
+      color: #1a1a1a;
+    }
+    .condicoes li::before {
+      content: ' ';
+      position: absolute;
+      left: 5px;
+      color: #D4AF37;
+      font-weight: bold;
+    }
+    .cupom-footer {
+      border-top: 3px solid #D4AF37;
+      padding-top: 15px;
+      margin-top: 20px;
+      text-align: center;
+    }
+    .cupom-footer p {
+      font-size: 0.95rem;
+      color: #1a1a1a;
+      font-weight: 600;
+      margin: 5px 0;
+    }
+    .cupom-footer strong {
+      color: #000;
+      font-weight: 700;
+    }
+    .print-btn {
+      background: #10B981;
+      margin-top: 20px;
+    }
+    .print-btn:hover {
+      background: #059669;
+    }
 
-        body {
-            font-family: 'Work Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: linear-gradient(135deg, var(--bg-dark) 0%, #1a1f2e 100%);
-            color: var(--text-primary);
-            min-height: 100vh;
-            line-height: 1.6;
-        }
+    /* IMPRESSORA T RMICA MP-4200 TH (80mm) */
+    @media print {
+      @page {
+        size: 80mm auto;
+        margin: 0;
+      }
+      body {
+        background: white;
+        margin: 0;
+        padding: 0;
+      }
+      .form-container,
+      header,
+      .alert {
+        display: none !important;
+      }
+      .container {
+        max-width: 80mm;
+        margin: 0;
+        padding: 0;
+      }
+      .cupom-preview {
+        box-shadow: none;
+        border: 3px solid #000;
+        border-radius: 0;
+        page-break-inside: avoid;
+        margin: 0;
+        padding: 5mm;
+        max-width: 80mm;
+        font-family: 'Courier New', Courier, monospace;
+      }
+      .cupom-header {
+        border-bottom: 3px solid #000;
+        padding-bottom: 3mm;
+        margin-bottom: 4mm;
+      }
+      .cupom-title {
+        font-size: 16pt;
+        color: #000;
+        font-weight: bold;
+      }
+      .cupom-subtitle {
+        font-size: 10pt;
+        color: #000;
+      }
+      .cupom-field {
+        background: white;
+        border: 2px solid #000;
+        padding: 3mm;
+        margin-bottom: 2mm;
+      }
+      .cupom-field label {
+        font-size: 9pt;
+        font-weight: bold;
+        color: #000;
+      }
+      .cupom-field .value {
+        font-size: 12pt;
+        color: #000;
+        font-weight: bold;
+      }
+      .cupom-destaque {
+        background: #f0f0f0;
+        border: 3px solid #000;
+        padding: 4mm;
+        margin: 3mm 0;
+      }
+      .cupom-destaque .label {
+        font-size: 11pt;
+        color: #000;
+        font-weight: bold;
+      }
+      .cupom-destaque .value {
+        font-size: 18pt;
+        color: #000;
+        font-weight: bold;
+      }
+      .condicoes {
+        background: white;
+        border: 2px solid #000;
+        border-left: 5px solid #000;
+        padding: 3mm;
+        margin-top: 3mm;
+      }
+      .condicoes h3 {
+        font-size: 11pt;
+        font-weight: bold;
+        color: #000;
+        margin-bottom: 2mm;
+      }
+      .condicoes li {
+        font-size: 8pt;
+        color: #000;
+        line-height: 1.4;
+        margin-bottom: 1mm;
+      }
+      .condicoes li::before {
+        color: #000;
+      }
+      .cupom-footer {
+        border-top: 3px solid #000;
+        padding-top: 3mm;
+        margin-top: 4mm;
+      }
+      .cupom-footer p {
+        font-size: 10pt;
+        color: #000;
+        font-weight: bold;
+        margin: 1mm 0;
+        line-height: 1.3;
+      }
+      .cupom-footer strong {
+        color: #000;
+        font-weight: bold;
+        font-size: 11pt;
+      }
+      .btn,
+      .print-btn {
+        display: none !important;
+      }
 
-        #root { min-height: 100vh; }
+      * {
+        color: #000 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+    }
 
-        .login-container {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            padding: 2rem;
-        }
+    @media (max-width: 768px) {
+      h1 {
+        font-size: 1.5rem;
+      }
+      .lojas-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>CUPOM DE TROCA</h1>
+    <p class="subtitle">Sistema de Gera  o de Cupons</p>
+  </header>
 
-        .login-card {
-            background: var(--bg-card);
-            border-radius: 20px;
-            padding: 3rem;
-            width: 100%;
-            max-width: 450px;
-            border: 1px solid var(--border);
-            box-shadow: 0 10px 40px var(--shadow);
-        }
+  <div class="container">
+    <div class="form-container">
+      <div id="alert" class="alert"></div>
 
-        .login-logo {
-            font-family: 'Syne', sans-serif;
-            font-size: 2.5rem;
-            font-weight: 800;
-            text-align: center;
-            margin-bottom: 1rem;
-            background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
+      <form id="cupomForm">
+        <div class="form-section">
+          <h2>Selecione a Loja</h2>
+          <div class="lojas-grid" id="lojasGrid"></div>
+        </div>
 
-        .login-subtitle {
-            text-align: center;
-            color: var(--text-secondary);
-            margin-bottom: 2rem;
-            font-size: 1.1rem;
-        }
+        <div class="form-section">
+          <h2>Dados do Cupom</h2>
+          <div class="form-group">
+            <label for="ticketFiscal">N mero do Ticket Fiscal *</label>
+            <input type="text" id="ticketFiscal" required placeholder="Ex: NF-123456">
+          </div>
+          <div class="form-group">
+            <label for="validade">Validade para Troca (dias) *</label>
+            <input type="number" id="validade" value="90" min="1" max="365" required>
+          </div>
+        </div>
 
-        .app-container { display: flex; min-height: 100vh; }
+        <button type="submit" class="btn">Gerar Cupom</button>
+      </form>
+    </div>
 
-        .sidebar {
-            width: 280px;
-            background: var(--bg-card);
-            border-right: 1px solid var(--border);
-            padding: 2rem 0;
-            position: fixed;
-            height: 100vh;
-            overflow-y: auto;
-            z-index: 100;
-            transition: transform 0.3s ease;
-        }
+    <div id="cupomPreview" class="cupom-preview">
+      <div class="cupom-header">
+        <div class="cupom-title">CUPOM DE TROCA</div>
+        <div class="cupom-subtitle">Comprovante de Troca de Mercadoria</div>
+      </div>
 
-        .logo {
-            font-family: 'Syne', sans-serif;
-            font-size: 1.8rem;
-            font-weight: 800;
-            padding: 0 2rem 1rem;
-            background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            letter-spacing: -0.5px;
-        }
+      <div class="cupom-body">
+        <div class="cupom-destaque">
+          <div class="label">TICKET FISCAL</div>
+          <div class="value" id="preview-ticket">-</div>
+        </div>
 
-        .store-info {
-            padding: 0 2rem 2rem;
-            border-bottom: 1px solid var(--border);
-            margin-bottom: 1rem;
-        }
+        <div class="cupom-field">
+          <label>Data de Emiss o:</label>
+          <div class="value" id="preview-emissao">-</div>
+        </div>
 
-        .store-name { font-weight: 600; color: var(--text-primary); margin-bottom: 0.25rem; }
-        .user-name { font-size: 0.9rem; color: var(--text-secondary); }
+        <div class="cupom-field">
+          <label>V lido at :</label>
+          <div class="value" id="preview-validade">-</div>
+        </div>
 
-        .nav-menu { list-style: none; padding: 0 1rem; }
-        .nav-item { margin-bottom: 0.5rem; }
+        <div class="condicoes">
+          <h3>POL TICA DE TROCA</h3>
+          <ul>
+            <li>Apresente este cupom na loja para realizar a troca</li>
+            <li>V lido apenas na unidade emissora do cupom</li>
+            <li>O cupom n o pode ser trocado por dinheiro</li>
+            <li>Caso o valor dos produtos seja superior, a diferen a dever  ser paga</li>
+            <li>Caso o valor seja inferior, n o haver  devolu  o de troco</li>
+            <li>Documento com foto ser  solicitado no momento da troca</li>
+          </ul>
+        </div>
+      </div>
 
-        .nav-link {
-            display: flex;
-            align-items: center;
-            padding: 1rem 1rem;
-            color: var(--text-secondary);
-            text-decoration: none;
-            border-radius: 12px;
-            transition: all 0.2s ease;
-            font-weight: 500;
-            cursor: pointer;
-            gap: 0.75rem;
-        }
+      <div class="cupom-footer">
+        <p><strong id="preview-loja-nome">-</strong></p>
+        <p id="preview-loja-razao">-</p>
+        <p id="preview-loja-cnpj">-</p>
+        <p id="preview-loja-endereco">-</p>
+        <p id="preview-loja-contato">-</p>
+      </div>
 
-        .nav-link:hover { background: var(--bg-hover); color: var(--text-primary); transform: translateX(4px); }
+      <button type="button" class="btn print-btn" onclick="window.print()">Imprimir Cupom</button>
+    </div>
+  </div>
 
-        .nav-link.active {
-            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-            color: white;
-            box-shadow: 0 4px 12px rgba(255, 107, 53, 0.3);
-        }
+  <script>
+    const LOJAS = {
+      lorena: {
+        nome: "Alameda Lorena",
+        razao_social: "M. ANJOS COMERCIO DE COSMETICOS",
+        cnpj: "31.290.480/0002-87",
+        email: "alameda.lorena@manjos.com.br",
+        telefone: "(11) 98687-2698",
+        endereco: ""
+      },
+      leopoldina: {
+        nome: "Vila Leopoldina",
+        razao_social: "F2 COMERCIO DE COSMETICOS",
+        cnpj: "47.574.300/0001-73",
+        email: "vila.leopoldina@manjos.com.br",
+        telefone: "(11) 95959-8031",
+        endereco: ""
+      },
+      santana: {
+        nome: "Santana",
+        razao_social: "F2 COMERCIO DE COSMETICOS",
+        cnpj: "49.574.300/0001-73",
+        email: "santana@manjos.com.br",
+        telefone: "(11) 98194-1516",
+        endereco: ""
+      },
+      perdizes: {
+        nome: "Perdizes",
+        razao_social: "F2 COMERCIO DE COSMETICOS E PERFUMARIA LTDA",
+        cnpj: "49.574.300/0002-54",
+        email: "",
+        telefone: "(11) 98114-3939",
+        endereco: "R. Itapicuru, 405 - Perdizes - CEP 05006-000"
+      },
+      mooca: {
+        nome: "Mooca Plaza Shopping",
+        razao_social: "M. ANJOS COMERCIO DE COSMETICOS",
+        cnpj: "31.290.480/0001-04",
+        email: "moocaplazashopping@avatim.com.br",
+        telefone: "(11) 95476-1740",
+        endereco: ""
+      },
+      ibirapuera: {
+        nome: "Ibirapuera",
+        razao_social: "M. ANJOS COMERCIO DE COSMETICOS E PE",
+        cnpj: "31.290.480/0007-91",
+        email: "",
+        telefone: "(11) 5090-2020",
+        endereco: "Av. Ibirapuera - Indianopolis - Moema"
+      }
+    };
 
-        .nav-icon { font-size: 1.25rem; }
+    let lojaSelecionada = null;
 
-        .logout-btn {
-            margin: 1rem;
-            padding: 1rem;
-            background: var(--danger);
-            color: white;
-            border: none;
-            border-radius: 12px;
-            cursor: pointer;
-            font-weight: 600;
-            transition: all 0.2s;
-            width: calc(100% - 2rem);
-        }
+    function renderizarLojas() {
+      const grid = document.getElementById('lojasGrid');
+      grid.innerHTML = '';
+      Object.keys(LOJAS).forEach(key => {
+        const loja = LOJAS[key];
+        const card = document.createElement('div');
+        card.className = 'loja-card';
+        card.dataset.loja = key;
+        card.innerHTML = `
+          <h3>${loja.nome}</h3>
+          <p>${loja.telefone}</p>
+        `;
+        card.onclick = () => selecionarLoja(key);
+        grid.appendChild(card);
+      });
+    }
 
-        .logout-btn:hover { background: #d63961; transform: translateY(-2px); }
+    function selecionarLoja(key) {
+      lojaSelecionada = key;
+      document.querySelectorAll('.loja-card').forEach(card => {
+        card.classList.remove('selected');
+      });
+      document.querySelector(`[data-loja="${key}"]`).classList.add('selected');
+    }
 
-        .main-content { flex: 1; margin-left: 280px; padding: 2rem; max-width: 100%; }
+    function mostrarAlerta(mensagem, tipo) {
+      const alert = document.getElementById('alert');
+      alert.textContent = mensagem;
+      alert.className = `alert ${tipo} active`;
+      setTimeout(() => {
+        alert.classList.remove('active');
+      }, 5000);
+    }
 
-        .header { margin-bottom: 2.5rem; animation: slideDown 0.6s ease; }
+    function formatarData(data) {
+      return `${String(data.getDate()).padStart(2, '0')}/${String(data.getMonth() + 1).padStart(2, '0')}/${data.getFullYear()}`;
+    }
 
-        @keyframes slideDown {
-            from { opacity: 0; transform: translateY(-20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
+    document.getElementById('cupomForm').addEventListener('submit', function(e) {
+      e.preventDefault();
 
-        .page-title {
-            font-family: 'Syne', sans-serif;
-            font-size: 2.5rem;
-            font-weight: 800;
-            margin-bottom: 0.5rem;
-            letter-spacing: -1px;
-        }
+      if (!lojaSelecionada) {
+        mostrarAlerta('Por favor, selecione uma loja!', 'error');
+        return;
+      }
 
-        .page-subtitle { color: var(--text-secondary); font-size: 1.1rem; }
+      const ticketFiscal = document.getElementById('ticketFiscal').value;
+      const validade = parseInt(document.getElementById('validade').value);
+      const loja = LOJAS[lojaSelecionada];
 
-        .card {
-            background: var(--bg-card);
-            border-radius: 16px;
-            padding: 2rem;
-            margin-bottom: 2rem;
-            border: 1px solid var(--border);
-            box-shadow: 0 4px 20px var(--shadow);
-            animation: fadeIn 0.6s ease;
-            animation-fill-mode: both;
-        }
+      const dataEmissao = new Date();
+      const dataValidade = new Date();
+      dataValidade.setDate(dataValidade.getDate() + validade);
 
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
+      document.getElementById('preview-ticket').textContent = ticketFiscal;
+      document.getElementById('preview-emissao').textContent = formatarData(dataEmissao);
+      document.getElementById('preview-validade').textContent = formatarData(dataValidade);
 
-        .card:nth-child(1) { animation-delay: 0.1s; }
-        .card:nth-child(2) { animation-delay: 0.2s; }
-        .card:nth-child(3) { animation-delay: 0.3s; }
+      document.getElementById('preview-loja-nome').textContent = loja.nome;
+      document.getElementById('preview-loja-razao').textContent = loja.razao_social;
+      document.getElementById('preview-loja-cnpj').textContent = `CNPJ: ${loja.cnpj}`;
 
-        .card-title {
-            font-family: 'Syne', sans-serif;
-            font-size: 1.5rem;
-            font-weight: 700;
-            margin-bottom: 1.5rem;
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-        }
+      if (loja.endereco) {
+        document.getElementById('preview-loja-endereco').textContent = loja.endereco;
+      } else {
+        document.getElementById('preview-loja-endereco').textContent = '';
+      }
 
-        .form-group { margin-bottom: 1.5rem; }
+      let contato = [];
+      if (loja.telefone) contato.push(`Tel: ${loja.telefone}`);
+      if (loja.email) contato.push(`E-mail: ${loja.email}`);
+      document.getElementById('preview-loja-contato').textContent = contato.join(' \n ');
 
-        .form-label { display: block; margin-bottom: 0.5rem; font-weight: 600; color: var(--text-primary); font-size: 0.95rem; }
+      document.getElementById('cupomPreview').classList.add('active');
+      document.getElementById('cupomPreview').scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-        .form-input, .form-select, .form-textarea {
-            width: 100%;
-            padding: 0.875rem 1rem;
-            background: var(--bg-dark);
-            border: 2px solid var(--border);
-            border-radius: 12px;
-            color: var(--text-primary);
-            font-size: 1rem;
-            transition: all 0.2s ease;
-            font-family: 'Work Sans', sans-serif;
-        }
+      mostrarAlerta('Cupom gerado com sucesso! Clique em "Imprimir Cupom" para imprimir na MP-4200 TH.', 'success');
+    });
 
-        .form-input:focus, .form-select:focus, .form-textarea:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.1);
-        }
-
-        .form-textarea { resize: vertical; min-height: 100px; }
-
-        .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; }
-
-        .btn {
-            padding: 0.875rem 1.75rem;
-            border: none;
-            border-radius: 12px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            font-size: 1rem;
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-family: 'Work Sans', sans-serif;
+    renderizarLojas();
+  </script>
+</body>
+</html>
