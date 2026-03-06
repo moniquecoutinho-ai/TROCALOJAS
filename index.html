@@ -21,14 +21,10 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Work Sans', sans-serif; background: linear-gradient(135deg, var(--bg-dark) 0%, #1a1f2e 100%); color: var(--text-primary); min-height: 100vh; line-height: 1.6; }
         #root { min-height: 100vh; }
-
-        /* LOGIN */
         .login-container { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 2rem; }
         .login-card { background: var(--bg-card); border-radius: 20px; padding: 3rem; width: 100%; max-width: 450px; border: 1px solid var(--border); box-shadow: 0 10px 40px var(--shadow); }
         .login-logo { font-family: 'Syne', sans-serif; font-size: 2.5rem; font-weight: 800; text-align: center; margin-bottom: 1rem; background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
         .login-subtitle { text-align: center; color: var(--text-secondary); margin-bottom: 2rem; font-size: 1.1rem; }
-
-        /* LAYOUT */
         .app-container { display: flex; min-height: 100vh; }
         .sidebar { width: 280px; background: var(--bg-card); border-right: 1px solid var(--border); padding: 2rem 0; position: fixed; height: 100vh; overflow-y: auto; z-index: 100; transition: transform 0.3s ease; }
         .logo { font-family: 'Syne', sans-serif; font-size: 1.8rem; font-weight: 800; padding: 0 2rem 1rem; background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; letter-spacing: -0.5px; }
@@ -41,7 +37,6 @@
         .sync-dot.offline { background: var(--danger); }
         .sync-dot.loading { background: var(--warning); animation: pulse 1s infinite; }
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
-
         .nav-menu { list-style: none; padding: 0 1rem; }
         .nav-item { margin-bottom: 0.5rem; }
         .nav-link { display: flex; align-items: center; padding: 1rem; color: var(--text-secondary); text-decoration: none; border-radius: 12px; transition: all 0.2s ease; font-weight: 500; cursor: pointer; gap: 0.75rem; }
@@ -51,27 +46,19 @@
         .logout-btn { margin: 1rem; padding: 1rem; background: var(--danger); color: white; border: none; border-radius: 12px; cursor: pointer; font-weight: 600; transition: all 0.2s; width: calc(100% - 2rem); }
         .logout-btn:hover { background: #d63961; transform: translateY(-2px); }
         .main-content { flex: 1; margin-left: 280px; padding: 2rem; max-width: 100%; }
-
-        /* HEADER */
         .header { margin-bottom: 2.5rem; animation: slideDown 0.6s ease; }
         @keyframes slideDown { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
         .page-title { font-family: 'Syne', sans-serif; font-size: 2.5rem; font-weight: 800; margin-bottom: 0.5rem; letter-spacing: -1px; }
         .page-subtitle { color: var(--text-secondary); font-size: 1.1rem; }
-
-        /* CARDS */
         .card { background: var(--bg-card); border-radius: 16px; padding: 2rem; margin-bottom: 2rem; border: 1px solid var(--border); box-shadow: 0 4px 20px var(--shadow); animation: fadeIn 0.6s ease; animation-fill-mode: both; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
         .card-title { font-family: 'Syne', sans-serif; font-size: 1.5rem; font-weight: 700; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.75rem; }
-
-        /* FORMS */
         .form-group { margin-bottom: 1.5rem; }
         .form-label { display: block; margin-bottom: 0.5rem; font-weight: 600; color: var(--text-primary); font-size: 0.95rem; }
         .form-input, .form-select, .form-textarea { width: 100%; padding: 0.875rem 1rem; background: var(--bg-dark); border: 2px solid var(--border); border-radius: 12px; color: var(--text-primary); font-size: 1rem; transition: all 0.2s ease; font-family: 'Work Sans', sans-serif; }
         .form-input:focus, .form-select:focus, .form-textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(255,107,53,0.1); }
         .form-textarea { resize: vertical; min-height: 100px; }
         .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; }
-
-        /* BUTTONS */
         .btn { padding: 0.875rem 1.75rem; border: none; border-radius: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s ease; font-size: 1rem; display: inline-flex; align-items: center; gap: 0.5rem; font-family: 'Work Sans', sans-serif; }
         .btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px var(--shadow); }
         .btn:active { transform: translateY(0); }
@@ -83,8 +70,6 @@
         .btn-warning { background: var(--warning); color: var(--bg-dark); }
         .btn-outline { background: transparent; border: 2px solid var(--border); color: var(--text-primary); }
         .btn-small { padding: 0.5rem 1rem; font-size: 0.9rem; }
-
-        /* ITEMS */
         .item-list { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1rem; }
         .item-card { background: var(--bg-dark); padding: 1.25rem; border-radius: 12px; border: 2px solid var(--border); display: flex; justify-content: space-between; align-items: center; transition: all 0.2s ease; }
         .item-card:hover { border-color: var(--primary); transform: translateX(4px); }
@@ -93,16 +78,12 @@
         .item-value { color: var(--accent); font-weight: 700; font-size: 1.1rem; }
         .item-condition { font-size: 0.9rem; color: var(--text-secondary); margin-top: 0.25rem; }
         .item-actions { display: flex; gap: 0.5rem; }
-
-        /* STATS */
         .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
         .stat-card { background: var(--bg-card); padding: 1.75rem; border-radius: 16px; border: 1px solid var(--border); transition: all 0.3s ease; }
         .stat-card:hover { transform: translateY(-4px); box-shadow: 0 8px 24px var(--shadow); }
         .stat-icon { font-size: 2.5rem; margin-bottom: 1rem; display: block; }
         .stat-value { font-size: 2.25rem; font-weight: 800; font-family: 'Syne', sans-serif; margin-bottom: 0.5rem; display: block; }
         .stat-label { color: var(--text-secondary); font-size: 0.95rem; }
-
-        /* TABLE */
         .table-container { overflow-x: auto; border-radius: 12px; border: 1px solid var(--border); }
         .table { width: 100%; border-collapse: collapse; }
         .table thead { background: var(--bg-dark); }
@@ -111,8 +92,6 @@
         .table tbody tr { transition: background 0.2s ease; }
         .table tbody tr:hover { background: var(--bg-hover); }
         .table tbody tr:last-child td { border-bottom: none; }
-
-        /* BADGES */
         .badge { display: inline-block; padding: 0.5rem 1rem; border-radius: 8px; font-size: 0.85rem; font-weight: 600; }
         .badge-pending { background: rgba(255,210,63,0.2); color: var(--warning); }
         .badge-confirmed { background: rgba(6,214,160,0.2); color: var(--success); }
@@ -121,8 +100,6 @@
         .stock-badge.in-stock { background: rgba(6,214,160,0.2); color: var(--success); }
         .stock-badge.low-stock { background: rgba(255,210,63,0.2); color: var(--warning); }
         .stock-badge.out-of-stock { background: rgba(239,71,111,0.2); color: var(--danger); }
-
-        /* MODAL */
         .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.75); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 2rem; backdrop-filter: blur(4px); }
         .modal-content { background: var(--bg-card); border-radius: 20px; max-width: 700px; width: 100%; max-height: 90vh; overflow-y: auto; border: 1px solid var(--border); box-shadow: 0 20px 60px var(--shadow); animation: modalSlideIn 0.3s ease; }
         @keyframes modalSlideIn { from { opacity: 0; transform: scale(0.9) translateY(20px); } to { opacity: 1; transform: scale(1) translateY(0); } }
@@ -131,34 +108,25 @@
         .modal-close { background: none; border: none; color: var(--text-secondary); font-size: 2rem; cursor: pointer; padding: 0; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 8px; transition: all 0.2s; }
         .modal-close:hover { background: var(--bg-hover); color: var(--text-primary); }
         .modal-body { padding: 2rem; }
-
-        /* PHOTOS */
         .photos-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1rem; }
         .photo-preview { position: relative; aspect-ratio: 1; border-radius: 12px; overflow: hidden; border: 2px solid var(--border); transition: all 0.2s; }
         .photo-preview:hover { border-color: var(--primary); transform: scale(1.05); }
         .photo-preview img { width: 100%; height: 100%; object-fit: cover; }
         .photo-remove { position: absolute; top: 0.5rem; right: 0.5rem; background: var(--danger); color: white; border: none; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; transition: all 0.2s; }
-
-        /* MISC */
         .empty-state { text-align: center; padding: 4rem 2rem; color: var(--text-secondary); }
         .empty-state-icon { font-size: 4rem; margin-bottom: 1rem; opacity: 0.5; }
         .action-buttons { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 2rem; }
         .filters { display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap; }
-
-        /* LOADING */
         .loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15,20,25,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 9999; }
         .loading-spinner { width: 60px; height: 60px; border: 4px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 1.5rem; }
         @keyframes spin { to { transform: rotate(360deg); } }
         .loading-text { font-family: 'Syne', sans-serif; font-size: 1.2rem; color: var(--text-secondary); }
-
-        /* TOAST */
         .toast-container { position: fixed; bottom: 2rem; right: 2rem; z-index: 9998; display: flex; flex-direction: column; gap: 0.75rem; }
         .toast { padding: 1rem 1.5rem; border-radius: 12px; font-weight: 600; box-shadow: 0 8px 24px var(--shadow); animation: toastIn 0.3s ease; display: flex; align-items: center; gap: 0.75rem; min-width: 280px; }
         @keyframes toastIn { from { opacity: 0; transform: translateX(100%); } to { opacity: 1; transform: translateX(0); } }
         .toast-success { background: var(--success); color: white; }
         .toast-error { background: var(--danger); color: white; }
         .toast-info { background: var(--secondary); color: white; }
-
         @media (max-width: 768px) {
             .sidebar { transform: translateX(-100%); }
             .sidebar.open { transform: translateX(0); }
@@ -176,7 +144,6 @@
 <body>
 <div id="root"></div>
 
-<!-- ✅ FIREBASE SDK -->
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
     import {
@@ -289,7 +256,6 @@
     console.log("🔥 Firebase TrocaDB pronto!");
 </script>
 
-<!-- ✅ REACT APP -->
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback } = React;
 
@@ -419,18 +385,15 @@ function App() {
         (async () => {
             setLoading(true);
             await waitForDB();
-
             unsubExchanges = window.TrocaDB.ouvirTrocas(currentStore.id, (trocas) => {
                 setExchanges(trocas);
                 setSyncStatus('online');
                 setLoading(false);
             });
-
             unsubInventory = window.TrocaDB.ouvirEstoque(
                 currentStore.id, INITIAL_INVENTORY,
                 (inv) => setInventory(inv)
             );
-
             unsubscribeRef.current = [unsubExchanges, unsubInventory];
         })().catch(() => {
             setSyncStatus('offline');
@@ -534,11 +497,7 @@ function AdminView({ onLogout, showToast }) {
 
     const allExchanges = Object.values(storeExchanges).flat()
         .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-
-    const filteredExchanges = selectedStore === 'all'
-        ? allExchanges
-        : allExchanges.filter(ex => ex.storeId === selectedStore);
-
+    const filteredExchanges = selectedStore === 'all' ? allExchanges : allExchanges.filter(ex => ex.storeId === selectedStore);
     const totalDifference = allExchanges.reduce((sum, ex) => sum + (ex.difference || 0), 0);
 
     const handleExportAll = () => {
@@ -673,11 +632,11 @@ function NewExchangePage({ storeId, inventory, showToast }) {
     const [incomingItems, setIncomingItems] = useState([]);
     const [photos, setPhotos] = useState([]);
     const [newOut, setNewOut] = useState({ description: '', value: '' });
-    const [newIn, setNewIn]   = useState({ description: '', value: '', condition: 'Novo' });
+    const [newIn, setNewIn] = useState({ description: '', value: '', condition: 'Novo' });
     const [saving, setSaving] = useState(false);
 
-    const outTotal   = outgoingItems.reduce((s, i) => s + parseFloat(i.value), 0);
-    const inTotal    = incomingItems.reduce((s, i) => s + parseFloat(i.value), 0);
+    const outTotal = outgoingItems.reduce((s, i) => s + parseFloat(i.value), 0);
+    const inTotal = incomingItems.reduce((s, i) => s + parseFloat(i.value), 0);
     const difference = outTotal - inTotal;
 
     const addOut = () => {
