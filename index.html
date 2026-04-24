@@ -198,6 +198,38 @@
         .month-exchange-list { margin-top: 2rem; }
         .month-list-title { font-family: 'Syne', sans-serif; font-size: 1.2rem; font-weight: 700; margin-bottom: 1rem; color: var(--text-secondary); }
 
+        /* ── CALENDÁRIO GLOBAL ADMIN ─────────────────────────────────────────── */
+        .admin-cal-store-tag {
+            display: inline-flex; align-items: center; gap: 0.3rem;
+            padding: 0.12rem 0.45rem; border-radius: 5px;
+            font-size: 0.68rem; font-weight: 700;
+            margin-bottom: 0.18rem; width: 100%;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .store-color-0  { background: rgba(255,107,53,0.25); color: #FF6B35; }
+        .store-color-1  { background: rgba(6,214,160,0.25);  color: #06D6A0; }
+        .store-color-2  { background: rgba(247,179,43,0.25); color: #F7B32B; }
+        .store-color-3  { background: rgba(0,78,137,0.4);    color: #5bc0eb; }
+        .store-color-4  { background: rgba(239,71,111,0.25); color: #EF476F; }
+        .store-color-5  { background: rgba(160,110,230,0.25);color: #a06ee6; }
+        .store-color-6  { background: rgba(45,200,180,0.25); color: #2dc8b4; }
+
+        .admin-month-tabs { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+        .admin-month-tab { padding: 0.5rem 1.1rem; border-radius: 10px; background: var(--bg-dark); border: 2px solid var(--border); color: var(--text-secondary); font-weight: 600; font-size: 0.9rem; cursor: pointer; transition: all 0.2s; }
+        .admin-month-tab:hover { border-color: var(--primary); color: var(--primary); }
+        .admin-month-tab.active { background: linear-gradient(135deg, var(--primary), var(--primary-dark)); border-color: var(--primary); color: white; box-shadow: 0 3px 10px rgba(255,107,53,0.3); }
+
+        .store-legend { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 1.5rem; }
+        .store-legend-item { display: flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.75rem; border-radius: 8px; background: var(--bg-dark); border: 1px solid var(--border); font-size: 0.82rem; font-weight: 600; }
+        .store-legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+        .admin-cal-day-modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.75); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 2rem; backdrop-filter: blur(4px); }
+        .admin-cal-day-modal-content { background: var(--bg-card); border-radius: 20px; max-width: 750px; width: 100%; max-height: 88vh; overflow-y: auto; border: 1px solid var(--border); box-shadow: 0 20px 60px var(--shadow); animation: modalSlideIn 0.3s ease; }
+
+        .admin-cal-filter-bar { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1.25rem; align-items: center; }
+        .admin-cal-filter-btn { padding: 0.4rem 0.9rem; border-radius: 8px; border: 2px solid var(--border); background: var(--bg-dark); color: var(--text-secondary); font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        .admin-cal-filter-btn.active { border-color: var(--primary); color: var(--primary); background: rgba(255,107,53,0.1); }
+
         @media (max-width: 768px) {
             .sidebar { transform: translateX(-100%); }
             .sidebar.open { transform: translateX(0); }
@@ -347,6 +379,16 @@ const STORES = [
 ];
 const ADMIN = { id: 'admin', name: 'Administrador', password: 'admin2025' };
 
+const STORE_COLORS = [
+    { cls: 'store-color-0', dot: '#FF6B35' },
+    { cls: 'store-color-1', dot: '#06D6A0' },
+    { cls: 'store-color-2', dot: '#F7B32B' },
+    { cls: 'store-color-3', dot: '#5bc0eb' },
+    { cls: 'store-color-4', dot: '#EF476F' },
+    { cls: 'store-color-5', dot: '#a06ee6' },
+    { cls: 'store-color-6', dot: '#2dc8b4' },
+];
+
 const INITIAL_INVENTORY = [{"id":1,"barcode":"1020111100","product":"PERFUME PARA INTERIORES CURUMIM 1100 ML","group":"CURUMIM","line":"LINHA CLASSICOS","price":0,"quantity":5,"minQuantity":5},{"id":2,"barcode":"1020110200","product":"PERFUME PARA INTERIORES CURUMIM 200 ML","group":"CURUMIM","line":"LINHA CLASSICOS","price":0,"quantity":0,"minQuantity":5},{"id":3,"barcode":"1020171100","product":"PERFUME PARA INTERIORES GABRIELA 1100 ML","group":"PERFUME PARA INTERIORES 1100","line":"LINHA BULEVAR","price":0,"quantity":0,"minQuantity":5},{"id":4,"barcode":"1020251100","product":"PERFUME PARA INTERIORES MARRUA 1100 ML","group":"MARRUA","line":"LINHA CLASSICOS","price":0,"quantity":11,"minQuantity":5},{"id":5,"barcode":"1020250200","product":"PERFUME PARA INTERIORES MARRUA 200 ML","group":"MARRUA","line":"LINHA CLASSICOS","price":0,"quantity":9,"minQuantity":5},{"id":6,"barcode":"1030251100","product":"AGUA PERFUMADA PARA ROUPAS MARRUA 1100 ML","group":"MARRUA","line":"LINHA CLASSICOS","price":0,"quantity":8,"minQuantity":5},{"id":7,"barcode":"1010009025","product":"VALVULA DISPERSORA AVATIM","group":"VALVULA DISPERSORA","line":"EQUIPAMENTOS E ACESSORIOS","price":0,"quantity":2,"minQuantity":5},{"id":8,"barcode":"1020254600","product":"PERFUME PARA INTERIORES MARRUA 4600 ML","group":"MARRUA","line":"LINHA CLASSICOS","price":0,"quantity":0,"minQuantity":5},{"id":9,"barcode":"1020024600","product":"PERFUME PARA INTERIORES CASCAS & FOLHAS 4600 ML","group":"CASCAS & FOLHAS","line":"LINHA CLASSICOS","price":0,"quantity":3,"minQuantity":5},{"id":10,"barcode":"1020021100","product":"PERFUME PARA INTERIORES CASCAS & FOLHAS 1100 ML","group":"CASCAS & FOLHAS","line":"LINHA CLASSICOS","price":0,"quantity":5,"minQuantity":5}];
 
 const MONTH_NAMES_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
@@ -356,10 +398,8 @@ const fmt = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency:
 
 // ─── HELPERS DE DATA ──────────────────────────────────────────────────────────
 function parseDateKey(dateStr) {
-    // dateStr pode ser "2025-04-15" (input[date]) ou timestamp
     if (!dateStr) return null;
     try {
-        // Evita o problema de timezone: parse manual
         const parts = dateStr.split('-');
         if (parts.length === 3) {
             return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
@@ -369,7 +409,6 @@ function parseDateKey(dateStr) {
 }
 
 function dateKey(d) {
-    // "YYYY-MM-DD"
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
@@ -559,12 +598,353 @@ function App() {
     );
 }
 
+// ─── CALENDÁRIO GLOBAL ADMIN ──────────────────────────────────────────────────
+function AdminGlobalCalendar({ allExchanges, storeExchanges }) {
+    const today = new Date();
+    const [viewYear,  setViewYear]  = useState(today.getFullYear());
+    const [viewMonth, setViewMonth] = useState(today.getMonth());
+    const [selectedDay, setSelectedDay] = useState(null);
+    const [filterStore, setFilterStore] = useState('all');
+    const [selectedExchange, setSelectedExchange] = useState(null);
+
+    // Build storeIndex map for coloring
+    const storeIndexMap = useMemo(() => {
+        const m = {};
+        STORES.forEach((s, i) => { m[s.id] = i; });
+        return m;
+    }, []);
+
+    const displayExchanges = useMemo(() => {
+        if (filterStore === 'all') return allExchanges;
+        return allExchanges.filter(ex => ex.storeId === filterStore);
+    }, [allExchanges, filterStore]);
+
+    // Map date → exchanges
+    const exchangesByDay = useMemo(() => {
+        const map = {};
+        displayExchanges.forEach(ex => {
+            if (!ex.date) return;
+            const d = parseDateKey(ex.date);
+            if (!d) return;
+            const k = dateKey(d);
+            if (!map[k]) map[k] = [];
+            map[k].push(ex);
+        });
+        return map;
+    }, [displayExchanges]);
+
+    // Month exchanges
+    const monthExchanges = useMemo(() => {
+        return displayExchanges.filter(ex => {
+            if (!ex.date) return false;
+            const d = parseDateKey(ex.date);
+            if (!d) return false;
+            return d.getFullYear() === viewYear && d.getMonth() === viewMonth;
+        });
+    }, [displayExchanges, viewYear, viewMonth]);
+
+    // Available months (that have exchanges)
+    const availableMonths = useMemo(() => {
+        const set = new Set();
+        allExchanges.forEach(ex => {
+            if (!ex.date) return;
+            const d = parseDateKey(ex.date);
+            if (d) set.add(`${d.getFullYear()}-${d.getMonth()}`);
+        });
+        return Array.from(set).map(k => {
+            const [y, m] = k.split('-').map(Number);
+            return { year: y, month: m, key: k };
+        }).sort((a,b) => b.year - a.year || b.month - a.month);
+    }, [allExchanges]);
+
+    // Calendar grid cells
+    const calendarDays = useMemo(() => {
+        const firstDay = new Date(viewYear, viewMonth, 1);
+        const lastDay  = new Date(viewYear, viewMonth + 1, 0);
+        const startWd  = firstDay.getDay();
+        const days = [];
+        for (let i = startWd - 1; i >= 0; i--) {
+            days.push({ date: new Date(viewYear, viewMonth, -i), otherMonth: true });
+        }
+        for (let i = 1; i <= lastDay.getDate(); i++) {
+            days.push({ date: new Date(viewYear, viewMonth, i), otherMonth: false });
+        }
+        const remaining = 7 - (days.length % 7);
+        if (remaining < 7) {
+            for (let i = 1; i <= remaining; i++) {
+                days.push({ date: new Date(viewYear, viewMonth + 1, i), otherMonth: true });
+            }
+        }
+        return days;
+    }, [viewYear, viewMonth]);
+
+    const prevMonth = () => {
+        if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11); }
+        else setViewMonth(m => m - 1);
+        setSelectedDay(null);
+    };
+    const nextMonth = () => {
+        if (viewMonth === 11) { setViewYear(y => y + 1); setViewMonth(0); }
+        else setViewMonth(m => m + 1);
+        setSelectedDay(null);
+    };
+    const goToday = () => { setViewYear(today.getFullYear()); setViewMonth(today.getMonth()); setSelectedDay(null); };
+
+    const todayKey = dateKey(today);
+    const selectedKey = selectedDay ? dateKey(selectedDay) : null;
+    const selectedDayExchanges = selectedKey ? (exchangesByDay[selectedKey] || []) : [];
+
+    const monthPending   = monthExchanges.filter(e => e.status === 'pending').length;
+    const monthConfirmed = monthExchanges.filter(e => e.status === 'confirmed').length;
+    const monthDiff      = monthExchanges.reduce((s, e) => s + (e.difference || 0), 0);
+
+    // Stores that actually have exchanges this month
+    const activeStoresThisMonth = useMemo(() => {
+        const ids = new Set(monthExchanges.map(e => e.storeId));
+        return STORES.filter(s => ids.has(s.id));
+    }, [monthExchanges]);
+
+    return (
+        <div>
+            {/* Month quick-jump tabs */}
+            {availableMonths.length > 0 && (
+                <div className="admin-month-tabs">
+                    {availableMonths.slice(0, 12).map(({ year, month, key }) => (
+                        <button
+                            key={key}
+                            className={`admin-month-tab ${viewYear === year && viewMonth === month ? 'active' : ''}`}
+                            onClick={() => { setViewYear(year); setViewMonth(month); setSelectedDay(null); }}>
+                            {MONTH_NAMES_PT[month].slice(0,3)} {year}
+                        </button>
+                    ))}
+                </div>
+            )}
+
+            {/* Store filter */}
+            <div className="admin-cal-filter-bar">
+                <span style={{ fontSize:'0.85rem', color:'var(--text-secondary)', fontWeight:'600' }}>Filtrar loja:</span>
+                <button className={`admin-cal-filter-btn ${filterStore === 'all' ? 'active' : ''}`} onClick={() => setFilterStore('all')}>🏪 Todas</button>
+                {STORES.map((s, i) => (
+                    <button key={s.id}
+                        className={`admin-cal-filter-btn ${filterStore === s.id ? 'active' : ''}`}
+                        style={ filterStore === s.id ? { borderColor: STORE_COLORS[i % STORE_COLORS.length].dot, color: STORE_COLORS[i % STORE_COLORS.length].dot, background: `${STORE_COLORS[i % STORE_COLORS.length].dot}18` } : {} }
+                        onClick={() => setFilterStore(s.id)}>
+                        {s.name}
+                    </button>
+                ))}
+            </div>
+
+            {/* Navigation */}
+            <div className="calendar-nav">
+                <div style={{ display:'flex', gap:'0.5rem', alignItems:'center' }}>
+                    <button className="calendar-nav-btn" onClick={prevMonth}>‹</button>
+                    <button className="calendar-nav-btn" onClick={nextMonth}>›</button>
+                    <button className="btn btn-outline btn-small" style={{ marginLeft:'0.5rem' }} onClick={goToday}>Hoje</button>
+                </div>
+                <div className="calendar-month-label">
+                    {MONTH_NAMES_PT[viewMonth]} {viewYear}
+                </div>
+                <div style={{ fontSize:'0.9rem', color:'var(--text-secondary)' }}>
+                    {monthExchanges.length} troca{monthExchanges.length !== 1 ? 's' : ''} no mês
+                </div>
+            </div>
+
+            {/* Summary bar */}
+            <div className="calendar-summary-bar">
+                <div className="cal-summary-item">
+                    <span className="cal-summary-value" style={{ color:'var(--text-primary)' }}>{monthExchanges.length}</span>
+                    <div className="cal-summary-label">Total do Mês</div>
+                </div>
+                <div className="cal-summary-item">
+                    <span className="cal-summary-value" style={{ color:'var(--warning)' }}>{monthPending}</span>
+                    <div className="cal-summary-label">⏳ Pendentes</div>
+                </div>
+                <div className="cal-summary-item">
+                    <span className="cal-summary-value" style={{ color: monthDiff >= 0 ? 'var(--success)' : 'var(--danger)' }}>{fmt(Math.abs(monthDiff))}</span>
+                    <div className="cal-summary-label">{monthDiff >= 0 ? '↗️ A receber' : '↙️ A devolver'}</div>
+                </div>
+            </div>
+
+            {/* Legend – only stores present this month */}
+            {activeStoresThisMonth.length > 0 && (
+                <div className="store-legend">
+                    {activeStoresThisMonth.map(s => {
+                        const idx = STORES.findIndex(st => st.id === s.id);
+                        const color = STORE_COLORS[idx % STORE_COLORS.length];
+                        return (
+                            <div key={s.id} className="store-legend-item">
+                                <span className="store-legend-dot" style={{ background: color.dot }}></span>
+                                {s.name}
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* Calendar grid */}
+            <div className="calendar-grid">
+                {DAY_NAMES_PT.map(d => <div key={d} className="calendar-weekday">{d}</div>)}
+                {calendarDays.map(({ date, otherMonth }, idx) => {
+                    const k   = dateKey(date);
+                    const exs = exchangesByDay[k] || [];
+                    const isToday = k === todayKey;
+                    const isSel   = k === selectedKey && !otherMonth;
+
+                    let cls = 'calendar-day';
+                    if (otherMonth) cls += ' other-month';
+                    if (exs.length > 0 && !otherMonth) cls += ' has-exchanges';
+                    if (isToday) cls += ' today';
+                    if (isSel) cls += ' selected';
+
+                    const handleClick = () => {
+                        if (otherMonth || exs.length === 0) return;
+                        setSelectedDay(isSel ? null : date);
+                    };
+
+                    const MAX_PILLS = 3;
+                    return (
+                        <div key={idx} className={cls} onClick={handleClick}>
+                            <div className="day-number">
+                                {date.getDate()}
+                                {isToday && <span className="day-today-dot" title="Hoje"></span>}
+                            </div>
+                            {!otherMonth && exs.slice(0, MAX_PILLS).map(ex => {
+                                const stIdx = STORES.findIndex(s => s.id === ex.storeId);
+                                const color = STORE_COLORS[stIdx % STORE_COLORS.length];
+                                return (
+                                    <span key={ex.id} className={`admin-cal-store-tag ${color.cls}`}
+                                        title={`${ex.storeName} — #${ex.saleNumber} — ${ex.customerName}`}>
+                                        {ex.storeName.split(' ')[0]} #{ex.saleNumber}
+                                    </span>
+                                );
+                            })}
+                            {!otherMonth && exs.length > MAX_PILLS && (
+                                <span className="day-more-pill">+{exs.length - MAX_PILLS}</span>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+
+            {/* Day detail panel */}
+            {selectedDay && selectedDayExchanges.length > 0 && (
+                <div className="cal-day-detail">
+                    <div className="cal-day-detail-title">
+                        <span>
+                            📅 {selectedDay.toLocaleDateString('pt-BR', { weekday:'long', day:'numeric', month:'long' })}
+                            <span style={{ marginLeft:'0.75rem', fontSize:'0.9rem', color:'var(--text-secondary)', fontWeight:'400' }}>
+                                {selectedDayExchanges.length} troca{selectedDayExchanges.length > 1 ? 's' : ''}
+                            </span>
+                        </span>
+                        <button className="cal-day-detail-close" onClick={() => setSelectedDay(null)}>×</button>
+                    </div>
+                    {selectedDayExchanges.map(ex => {
+                        const stIdx = STORES.findIndex(s => s.id === ex.storeId);
+                        const color = STORE_COLORS[stIdx % STORE_COLORS.length];
+                        return (
+                            <div key={`${ex.storeId}-${ex.id}`} className="cal-exchange-row"
+                                onClick={() => setSelectedExchange(ex)}>
+                                <div>
+                                    <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginBottom:'0.2rem' }}>
+                                        <span className={`admin-cal-store-tag ${color.cls}`} style={{ width:'auto', padding:'0.15rem 0.5rem', fontSize:'0.75rem' }}>
+                                            {ex.storeName}
+                                        </span>
+                                    </div>
+                                    <div style={{ fontWeight:'700' }}>#{ex.saleNumber} — {ex.customerName}</div>
+                                    <div style={{ fontSize:'0.85rem', color:'var(--text-secondary)' }}>Vendedor: {ex.salesPerson || '-'}</div>
+                                </div>
+                                <div style={{ textAlign:'right' }}>
+                                    <div style={{ fontWeight:'700', color: ex.difference >= 0 ? 'var(--success)' : 'var(--danger)' }}>{fmt(ex.difference)}</div>
+                                    <span className={`badge badge-${ex.status}`} style={{ padding:'0.2rem 0.6rem', fontSize:'0.75rem' }}>
+                                        {ex.status === 'pending' ? '⏳ Pendente' : '✅ Confirmada'}
+                                    </span>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* Month list table */}
+            {monthExchanges.length > 0 && (
+                <div className="month-exchange-list">
+                    <div className="month-list-title">📋 Todas as trocas de {MONTH_NAMES_PT[viewMonth]} {viewYear}</div>
+                    <div className="table-container">
+                        <table className="table">
+                            <thead>
+                                <tr>
+                                    <th>Loja</th>
+                                    <th>Data</th>
+                                    <th>Nº Venda</th>
+                                    <th>Cliente</th>
+                                    <th>Vendedor</th>
+                                    <th>Diferença</th>
+                                    <th>Status</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {monthExchanges
+                                    .slice()
+                                    .sort((a,b) => {
+                                        const da = parseDateKey(a.date);
+                                        const db_ = parseDateKey(b.date);
+                                        return (db_ ? db_.getTime() : 0) - (da ? da.getTime() : 0);
+                                    })
+                                    .map(ex => {
+                                        const stIdx = STORES.findIndex(s => s.id === ex.storeId);
+                                        const color = STORE_COLORS[stIdx % STORE_COLORS.length];
+                                        return (
+                                            <tr key={`${ex.storeId}-${ex.id}`} style={{ cursor:'pointer' }}
+                                                onClick={() => setSelectedExchange(ex)}>
+                                                <td>
+                                                    <span className={`admin-cal-store-tag ${color.cls}`} style={{ width:'auto', display:'inline-flex' }}>
+                                                        {ex.storeName}
+                                                    </span>
+                                                </td>
+                                                <td>{ex.date ? parseDateKey(ex.date).toLocaleDateString('pt-BR') : '-'}</td>
+                                                <td style={{ fontWeight:'700' }}>{ex.saleNumber}</td>
+                                                <td>{ex.customerName}</td>
+                                                <td>{ex.salesPerson || '-'}</td>
+                                                <td><span style={{ color: ex.difference >= 0 ? 'var(--success)' : 'var(--danger)', fontWeight:'700' }}>{fmt(ex.difference)}</span></td>
+                                                <td><span className={`badge badge-${ex.status}`}>{ex.status === 'pending' ? '⏳ Pendente' : '✅ Confirmada'}</span></td>
+                                                <td><button className="btn btn-primary btn-small" onClick={e => { e.stopPropagation(); setSelectedExchange(ex); }}>👁️</button></td>
+                                            </tr>
+                                        );
+                                    })
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+
+            {monthExchanges.length === 0 && (
+                <div className="empty-state" style={{ marginTop:'2rem' }}>
+                    <div className="empty-state-icon">🗓️</div>
+                    <p>Nenhuma troca em {MONTH_NAMES_PT[viewMonth]} {viewYear}</p>
+                </div>
+            )}
+
+            {selectedExchange && (
+                <ExchangeModal
+                    exchange={selectedExchange}
+                    storeId={selectedExchange.storeId}
+                    onClose={() => setSelectedExchange(null)}
+                    readOnly={true}
+                />
+            )}
+        </div>
+    );
+}
+
 // ─── ADMIN VIEW ───────────────────────────────────────────────────────────────
 function AdminView({ onLogout, showToast }) {
     const [storeExchanges, setStoreExchanges] = useState({});
     const [selectedStore, setSelectedStore] = useState('all');
     const [selectedExchange, setSelectedExchange] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [adminPage, setAdminPage] = useState('dashboard'); // 'dashboard' | 'calendar'
     const unsubRef = useRef(null);
 
     useEffect(() => {
@@ -623,95 +1003,130 @@ function AdminView({ onLogout, showToast }) {
                         </span>
                     </div>
                 </div>
-                <nav><ul className="nav-menu">
-                    <li className="nav-item"><div className="nav-link active"><span className="nav-icon">📊</span>Dashboard Geral</div></li>
-                </ul></nav>
+                <nav>
+                    <ul className="nav-menu">
+                        <li className="nav-item">
+                            <div className={`nav-link ${adminPage === 'dashboard' ? 'active' : ''}`}
+                                onClick={() => setAdminPage('dashboard')}>
+                                <span className="nav-icon">📊</span>Dashboard Geral
+                            </div>
+                        </li>
+                        <li className="nav-item">
+                            <div className={`nav-link ${adminPage === 'calendar' ? 'active' : ''}`}
+                                onClick={() => setAdminPage('calendar')}>
+                                <span className="nav-icon">🗓️</span>Calendário Global
+                            </div>
+                        </li>
+                    </ul>
+                </nav>
                 <button className="logout-btn" onClick={onLogout}>🚪 Sair</button>
             </aside>
             <main className="main-content">
-                <div className="header">
-                    <h1 className="page-title">👨‍💼 Painel do Administrador</h1>
-                    <p className="page-subtitle">Dados sincronizados em tempo real • Firebase Firestore</p>
-                </div>
-                <div className="action-buttons">
-                    <button className="btn btn-success" onClick={handleExportAll}>📥 Exportar Consolidado</button>
-                </div>
-                <div className="stats-grid">
-                    <div className="stat-card"><span className="stat-icon">🏪</span><span className="stat-value">{STORES.length}</span><span className="stat-label">Lojas Ativas</span></div>
-                    <div className="stat-card"><span className="stat-icon">📊</span><span className="stat-value">{allExchanges.length}</span><span className="stat-label">Total de Trocas</span></div>
-                    <div className="stat-card"><span className="stat-icon">⏳</span><span className="stat-value">{allExchanges.filter(e => e.status === 'pending').length}</span><span className="stat-label">Pendentes</span></div>
-                    <div className="stat-card"><span className="stat-icon">✅</span><span className="stat-value">{allExchanges.filter(e => e.status === 'confirmed').length}</span><span className="stat-label">Confirmadas</span></div>
-                </div>
-                <div className="card">
-                    <h2 className="card-title">💰 Diferença Total Consolidada</h2>
-                    <div style={{ textAlign: 'center', padding: '2rem' }}>
-                        <div style={{ fontSize: '3rem', fontWeight: '800', fontFamily: 'Syne, sans-serif', color: totalDifference >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                            {fmt(Math.abs(totalDifference))}
+
+                {/* ── CALENDÁRIO GLOBAL ── */}
+                {adminPage === 'calendar' && (
+                    <div>
+                        <div className="header">
+                            <h1 className="page-title">🗓️ Calendário Global</h1>
+                            <p className="page-subtitle">Trocas de todas as lojas por data • Tempo real</p>
                         </div>
-                        <div style={{ color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
-                            {totalDifference >= 0 ? '↗️ Clientes devem pagar no total' : '↙️ Lojas devem devolver no total'}
+                        <div className="card">
+                            <AdminGlobalCalendar
+                                allExchanges={allExchanges}
+                                storeExchanges={storeExchanges}
+                            />
                         </div>
                     </div>
-                </div>
-                <div className="card">
-                    <h2 className="card-title">📊 Desempenho por Loja</h2>
-                    <div className="table-container">
-                        <table className="table">
-                            <thead><tr><th>Loja</th><th>Total Trocas</th><th>Pendentes</th><th>Confirmadas</th><th>Diferença Total</th></tr></thead>
-                            <tbody>
-                                {STORES.map(store => {
-                                    const se = storeExchanges[store.id] || [];
-                                    const sd = se.reduce((s, ex) => s + (ex.difference || 0), 0);
-                                    return (
-                                        <tr key={store.id}>
-                                            <td><strong>{store.name}</strong></td>
-                                            <td style={{ fontWeight: '700' }}>{se.length}</td>
-                                            <td><span className="badge badge-pending">{se.filter(e => e.status === 'pending').length}</span></td>
-                                            <td><span className="badge badge-confirmed">{se.filter(e => e.status === 'confirmed').length}</span></td>
-                                            <td style={{ color: sd >= 0 ? 'var(--success)' : 'var(--danger)', fontWeight: '700' }}>{fmt(sd)}</td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                <div className="card">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                        <h2 className="card-title" style={{ margin: 0 }}>📋 Todas as Trocas</h2>
-                        <select className="form-select" value={selectedStore}
-                            onChange={(e) => setSelectedStore(e.target.value)} style={{ width: 'auto' }}>
-                            <option value="all">🏪 Todas as Lojas</option>
-                            {STORES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                        </select>
-                    </div>
-                    {filteredExchanges.length > 0 ? (
-                        <div className="table-container">
-                            <table className="table">
-                                <thead><tr><th>Loja</th><th>Nº Venda</th><th>Data</th><th>Cliente</th><th>Vendedor</th><th>Diferença</th><th>Status</th><th>Ações</th></tr></thead>
-                                <tbody>
-                                    {filteredExchanges.map(ex => (
-                                        <tr key={`${ex.storeId}-${ex.id}`}>
-                                            <td style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{ex.storeName}</td>
-                                            <td style={{ fontWeight: '700' }}>{ex.saleNumber}</td>
-                                            <td>{ex.date ? new Date(ex.date).toLocaleDateString('pt-BR') : '-'}</td>
-                                            <td>{ex.customerName}</td>
-                                            <td>{ex.salesPerson || '-'}</td>
-                                            <td><span style={{ color: ex.difference >= 0 ? 'var(--success)' : 'var(--danger)', fontWeight: '700' }}>{fmt(ex.difference)}</span></td>
-                                            <td><span className={`badge badge-${ex.status}`}>{ex.status === 'pending' ? '⏳ Pendente' : '✅ Confirmada'}</span></td>
-                                            <td><button className="btn btn-primary btn-small" onClick={() => setSelectedExchange(ex)}>👁️</button></td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                )}
+
+                {/* ── DASHBOARD ── */}
+                {adminPage === 'dashboard' && (
+                    <>
+                        <div className="header">
+                            <h1 className="page-title">👨‍💼 Painel do Administrador</h1>
+                            <p className="page-subtitle">Dados sincronizados em tempo real • Firebase Firestore</p>
                         </div>
-                    ) : (
-                        <div className="empty-state"><div className="empty-state-icon">📭</div><p>Nenhuma troca encontrada</p></div>
-                    )}
-                </div>
-                {selectedExchange && (
-                    <ExchangeModal exchange={selectedExchange} storeId={selectedExchange.storeId}
-                        onClose={() => setSelectedExchange(null)} readOnly={true} />
+                        <div className="action-buttons">
+                            <button className="btn btn-success" onClick={handleExportAll}>📥 Exportar Consolidado</button>
+                        </div>
+                        <div className="stats-grid">
+                            <div className="stat-card"><span className="stat-icon">🏪</span><span className="stat-value">{STORES.length}</span><span className="stat-label">Lojas Ativas</span></div>
+                            <div className="stat-card"><span className="stat-icon">📊</span><span className="stat-value">{allExchanges.length}</span><span className="stat-label">Total de Trocas</span></div>
+                            <div className="stat-card"><span className="stat-icon">⏳</span><span className="stat-value">{allExchanges.filter(e => e.status === 'pending').length}</span><span className="stat-label">Pendentes</span></div>
+                            <div className="stat-card"><span className="stat-icon">✅</span><span className="stat-value">{allExchanges.filter(e => e.status === 'confirmed').length}</span><span className="stat-label">Confirmadas</span></div>
+                        </div>
+                        <div className="card">
+                            <h2 className="card-title">💰 Diferença Total Consolidada</h2>
+                            <div style={{ textAlign: 'center', padding: '2rem' }}>
+                                <div style={{ fontSize: '3rem', fontWeight: '800', fontFamily: 'Syne, sans-serif', color: totalDifference >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                                    {fmt(Math.abs(totalDifference))}
+                                </div>
+                                <div style={{ color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
+                                    {totalDifference >= 0 ? '↗️ Clientes devem pagar no total' : '↙️ Lojas devem devolver no total'}
+                                </div>
+                            </div>
+                        </div>
+                        <div className="card">
+                            <h2 className="card-title">📊 Desempenho por Loja</h2>
+                            <div className="table-container">
+                                <table className="table">
+                                    <thead><tr><th>Loja</th><th>Total Trocas</th><th>Pendentes</th><th>Confirmadas</th><th>Diferença Total</th></tr></thead>
+                                    <tbody>
+                                        {STORES.map(store => {
+                                            const se = storeExchanges[store.id] || [];
+                                            const sd = se.reduce((s, ex) => s + (ex.difference || 0), 0);
+                                            return (
+                                                <tr key={store.id}>
+                                                    <td><strong>{store.name}</strong></td>
+                                                    <td style={{ fontWeight: '700' }}>{se.length}</td>
+                                                    <td><span className="badge badge-pending">{se.filter(e => e.status === 'pending').length}</span></td>
+                                                    <td><span className="badge badge-confirmed">{se.filter(e => e.status === 'confirmed').length}</span></td>
+                                                    <td style={{ color: sd >= 0 ? 'var(--success)' : 'var(--danger)', fontWeight: '700' }}>{fmt(sd)}</td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div className="card">
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                                <h2 className="card-title" style={{ margin: 0 }}>📋 Todas as Trocas</h2>
+                                <select className="form-select" value={selectedStore}
+                                    onChange={(e) => setSelectedStore(e.target.value)} style={{ width: 'auto' }}>
+                                    <option value="all">🏪 Todas as Lojas</option>
+                                    {STORES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                </select>
+                            </div>
+                            {filteredExchanges.length > 0 ? (
+                                <div className="table-container">
+                                    <table className="table">
+                                        <thead><tr><th>Loja</th><th>Nº Venda</th><th>Data</th><th>Cliente</th><th>Vendedor</th><th>Diferença</th><th>Status</th><th>Ações</th></tr></thead>
+                                        <tbody>
+                                            {filteredExchanges.map(ex => (
+                                                <tr key={`${ex.storeId}-${ex.id}`}>
+                                                    <td style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{ex.storeName}</td>
+                                                    <td style={{ fontWeight: '700' }}>{ex.saleNumber}</td>
+                                                    <td>{ex.date ? new Date(ex.date).toLocaleDateString('pt-BR') : '-'}</td>
+                                                    <td>{ex.customerName}</td>
+                                                    <td>{ex.salesPerson || '-'}</td>
+                                                    <td><span style={{ color: ex.difference >= 0 ? 'var(--success)' : 'var(--danger)', fontWeight: '700' }}>{fmt(ex.difference)}</span></td>
+                                                    <td><span className={`badge badge-${ex.status}`}>{ex.status === 'pending' ? '⏳ Pendente' : '✅ Confirmada'}</span></td>
+                                                    <td><button className="btn btn-primary btn-small" onClick={() => setSelectedExchange(ex)}>👁️</button></td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            ) : (
+                                <div className="empty-state"><div className="empty-state-icon">📭</div><p>Nenhuma troca encontrada</p></div>
+                            )}
+                        </div>
+                        {selectedExchange && (
+                            <ExchangeModal exchange={selectedExchange} storeId={selectedExchange.storeId}
+                                onClose={() => setSelectedExchange(null)} readOnly={true} />
+                        )}
+                    </>
                 )}
             </main>
         </div>
@@ -880,14 +1295,13 @@ function NewExchangePage({ storeId, inventory, showToast }) {
     );
 }
 
-// ─── CALENDÁRIO ───────────────────────────────────────────────────────────────
+// ─── CALENDÁRIO (loja individual) ─────────────────────────────────────────────
 function CalendarView({ exchanges, onSelectExchange }) {
     const today = new Date();
     const [viewYear,  setViewYear]  = useState(today.getFullYear());
-    const [viewMonth, setViewMonth] = useState(today.getMonth()); // 0-based
+    const [viewMonth, setViewMonth] = useState(today.getMonth());
     const [selectedDay, setSelectedDay] = useState(null);
 
-    // Mapeia "YYYY-MM-DD" → trocas daquele dia
     const exchangesByDay = useMemo(() => {
         const map = {};
         exchanges.forEach(ex => {
@@ -901,7 +1315,6 @@ function CalendarView({ exchanges, onSelectExchange }) {
         return map;
     }, [exchanges]);
 
-    // Trocas do mês inteiro
     const monthExchanges = useMemo(() => {
         return exchanges.filter(ex => {
             if (!ex.date) return false;
@@ -911,23 +1324,17 @@ function CalendarView({ exchanges, onSelectExchange }) {
         });
     }, [exchanges, viewYear, viewMonth]);
 
-    // Gerar células do calendário
     const calendarDays = useMemo(() => {
         const firstDay = new Date(viewYear, viewMonth, 1);
         const lastDay  = new Date(viewYear, viewMonth + 1, 0);
-        const startWd  = firstDay.getDay(); // 0=Dom
+        const startWd  = firstDay.getDay();
         const days = [];
-
-        // Dias do mês anterior para completar primeira semana
         for (let i = startWd - 1; i >= 0; i--) {
-            const d = new Date(viewYear, viewMonth, -i);
-            days.push({ date: d, otherMonth: true });
+            days.push({ date: new Date(viewYear, viewMonth, -i), otherMonth: true });
         }
-        // Dias do mês atual
         for (let i = 1; i <= lastDay.getDate(); i++) {
             days.push({ date: new Date(viewYear, viewMonth, i), otherMonth: false });
         }
-        // Completar última semana
         const remaining = 7 - (days.length % 7);
         if (remaining < 7) {
             for (let i = 1; i <= remaining; i++) {
@@ -954,27 +1361,21 @@ function CalendarView({ exchanges, onSelectExchange }) {
     const selectedDayExchanges = selectedKey ? (exchangesByDay[selectedKey] || []) : [];
 
     const monthPending   = monthExchanges.filter(e => e.status === 'pending').length;
-    const monthConfirmed = monthExchanges.filter(e => e.status === 'confirmed').length;
     const monthDiff      = monthExchanges.reduce((s, e) => s + (e.difference || 0), 0);
 
     return (
         <div>
-            {/* Navegação do mês */}
             <div className="calendar-nav">
                 <div style={{ display:'flex', gap:'0.5rem', alignItems:'center' }}>
                     <button className="calendar-nav-btn" onClick={prevMonth}>‹</button>
                     <button className="calendar-nav-btn" onClick={nextMonth}>›</button>
                     <button className="btn btn-outline btn-small" style={{ marginLeft:'0.5rem' }} onClick={goToday}>Hoje</button>
                 </div>
-                <div className="calendar-month-label">
-                    {MONTH_NAMES_PT[viewMonth]} {viewYear}
-                </div>
+                <div className="calendar-month-label">{MONTH_NAMES_PT[viewMonth]} {viewYear}</div>
                 <div style={{ fontSize:'0.9rem', color:'var(--text-secondary)' }}>
                     {monthExchanges.length} troca{monthExchanges.length !== 1 ? 's' : ''} no mês
                 </div>
             </div>
-
-            {/* Resumo do mês */}
             <div className="calendar-summary-bar">
                 <div className="cal-summary-item">
                     <span className="cal-summary-value" style={{ color:'var(--text-primary)' }}>{monthExchanges.length}</span>
@@ -989,8 +1390,6 @@ function CalendarView({ exchanges, onSelectExchange }) {
                     <div className="cal-summary-label">{monthDiff >= 0 ? '↗️ A receber' : '↙️ A devolver'}</div>
                 </div>
             </div>
-
-            {/* Grade do calendário */}
             <div className="calendar-grid">
                 {DAY_NAMES_PT.map(d => <div key={d} className="calendar-weekday">{d}</div>)}
                 {calendarDays.map(({ date, otherMonth }, idx) => {
@@ -998,18 +1397,15 @@ function CalendarView({ exchanges, onSelectExchange }) {
                     const exs  = exchangesByDay[k] || [];
                     const isToday = k === todayKey;
                     const isSel   = k === selectedKey && !otherMonth;
-
                     let cls = 'calendar-day';
                     if (otherMonth) cls += ' other-month';
                     if (exs.length > 0 && !otherMonth) cls += ' has-exchanges';
                     if (isToday) cls += ' today';
                     if (isSel) cls += ' selected';
-
                     const handleClick = () => {
                         if (otherMonth || exs.length === 0) return;
                         setSelectedDay(isSel ? null : date);
                     };
-
                     const MAX_PILLS = 2;
                     return (
                         <div key={idx} className={cls} onClick={handleClick}>
@@ -1029,8 +1425,6 @@ function CalendarView({ exchanges, onSelectExchange }) {
                     );
                 })}
             </div>
-
-            {/* Detalhe do dia selecionado */}
             {selectedDay && selectedDayExchanges.length > 0 && (
                 <div className="cal-day-detail">
                     <div className="cal-day-detail-title">
@@ -1058,8 +1452,6 @@ function CalendarView({ exchanges, onSelectExchange }) {
                     ))}
                 </div>
             )}
-
-            {/* Lista do mês abaixo */}
             {monthExchanges.length > 0 && (
                 <div className="month-exchange-list">
                     <div className="month-list-title">📋 Todas as trocas de {MONTH_NAMES_PT[viewMonth]}</div>
@@ -1091,7 +1483,6 @@ function CalendarView({ exchanges, onSelectExchange }) {
                     </div>
                 </div>
             )}
-
             {monthExchanges.length === 0 && (
                 <div className="empty-state" style={{ marginTop:'2rem' }}>
                     <div className="empty-state-icon">🗓️</div>
@@ -1104,7 +1495,7 @@ function CalendarView({ exchanges, onSelectExchange }) {
 
 // ─── HISTÓRICO ────────────────────────────────────────────────────────────────
 function HistoryPage({ storeId, exchanges, showToast }) {
-    const [historyView, setHistoryView] = useState('calendar'); // 'calendar' | 'list'
+    const [historyView, setHistoryView] = useState('calendar');
     const [filter, setFilter] = useState('all');
     const [search, setSearch] = useState('');
     const [selectedExchange, setSelectedExchange] = useState(null);
@@ -1134,32 +1525,15 @@ function HistoryPage({ storeId, exchanges, showToast }) {
                 <h1 className="page-title">📋 Histórico de Trocas</h1>
                 <p className="page-subtitle">Dados sincronizados em tempo real com Firebase</p>
             </div>
-
-            {/* Toggle calendário / lista */}
             <div className="view-toggle">
-                <button
-                    className={`view-toggle-btn ${historyView === 'calendar' ? 'active' : ''}`}
-                    onClick={() => setHistoryView('calendar')}>
-                    🗓️ Calendário
-                </button>
-                <button
-                    className={`view-toggle-btn ${historyView === 'list' ? 'active' : ''}`}
-                    onClick={() => setHistoryView('list')}>
-                    📋 Lista
-                </button>
+                <button className={`view-toggle-btn ${historyView === 'calendar' ? 'active' : ''}`} onClick={() => setHistoryView('calendar')}>🗓️ Calendário</button>
+                <button className={`view-toggle-btn ${historyView === 'list' ? 'active' : ''}`} onClick={() => setHistoryView('list')}>📋 Lista</button>
             </div>
-
-            {/* ── VISÃO CALENDÁRIO ─────────────────────────────────────────── */}
             {historyView === 'calendar' && (
                 <div className="card">
-                    <CalendarView
-                        exchanges={exchanges}
-                        onSelectExchange={setSelectedExchange}
-                    />
+                    <CalendarView exchanges={exchanges} onSelectExchange={setSelectedExchange} />
                 </div>
             )}
-
-            {/* ── VISÃO LISTA ──────────────────────────────────────────────── */}
             {historyView === 'list' && (
                 <>
                     <div className="card">
@@ -1206,7 +1580,6 @@ function HistoryPage({ storeId, exchanges, showToast }) {
                     )}
                 </>
             )}
-
             {selectedExchange && (
                 <ExchangeModal
                     exchange={selectedExchange}
@@ -1431,6 +1804,12 @@ function ExchangeModal({ exchange, storeId, onClose, onStatusChange, readOnly })
                             <div><div style={{ fontSize:'0.85rem', color:'var(--text-secondary)', marginBottom:'0.25rem' }}>VENDA</div><div style={{ fontSize:'1.5rem', fontWeight:'700' }}>{exchange.saleNumber}</div></div>
                             <span className={`badge badge-${exchange.status}`}>{exchange.status === 'pending' ? '⏳ Pendente' : '✅ Confirmada'}</span>
                         </div>
+                        {exchange.storeName && (
+                            <div style={{ marginBottom:'1rem' }}>
+                                <div style={{ fontSize:'0.85rem', color:'var(--text-secondary)' }}>Loja</div>
+                                <div style={{ fontWeight:'600' }}>{exchange.storeName}</div>
+                            </div>
+                        )}
                         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem', marginBottom:'1rem' }}>
                             <div><div style={{ fontSize:'0.85rem', color:'var(--text-secondary)' }}>Cliente</div><div style={{ fontWeight:'600' }}>{exchange.customerName}</div></div>
                             <div><div style={{ fontSize:'0.85rem', color:'var(--text-secondary)' }}>Data</div><div style={{ fontWeight:'600' }}>{exchange.date ? new Date(exchange.date).toLocaleDateString('pt-BR') : '-'}</div></div>
