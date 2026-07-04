@@ -225,8 +225,8 @@
 
         @media print {
             body * { visibility: hidden; }
-            #print-receipt, #print-receipt * { visibility: visible; }
-            #print-receipt { position: fixed; top: 0; left: 0; width: 100%; background: white; color: black; padding: 0; margin: 0; }
+            #print-receipt, #print-receipt *, #print-fechamento, #print-fechamento * { visibility: visible; }
+            #print-receipt, #print-fechamento { position: fixed; top: 0; left: 0; width: 100%; background: white; color: black; padding: 0; margin: 0; }
         }
         .receipt-wrap { font-family: 'Courier New', monospace; background: white; color: #111; padding: 2rem; max-width: 420px; margin: 0 auto; }
         .receipt-logo { text-align: center; font-size: 1.4rem; font-weight: 800; letter-spacing: 1px; margin-bottom: 0.25rem; }
@@ -244,7 +244,6 @@
 </head>
 <body>
 <div id="root"></div>
-
 <!-- ✅ FIREBASE INIT (compat - sem ESM) -->
 <script>
     const firebaseConfig = {
@@ -359,10 +358,52 @@
         return results;
     }
 
+    // ===== FECHAMENTO DE CAIXA =====
+    async function salvarFechamento(storeId, dateStr, dados) {
+        const ref = db.collection("stores").doc(storeId).collection("fechamentos").doc(dateStr);
+        await ref.set({ ...dados, date: dateStr, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+    }
+
+    async function getFechamento(storeId, dateStr) {
+        const ref = db.collection("stores").doc(storeId).collection("fechamentos").doc(dateStr);
+        const snap = await ref.get();
+        return snap.exists ? snap.data() : null;
+    }
+
+    function ouvirTodosFechamentos(lojas, callback) {
+        const unsubscribes = lojas.map(function(loja) {
+            const ref = db.collection("stores").doc(loja.id).collection("fechamentos");
+            return ref.onSnapshot(function(snap) {
+                const fechs = snap.docs.map(function(d) {
+                    return { ...d.data(), id: d.id, storeId: loja.id, storeName: loja.name };
+                });
+                callback(loja.id, fechs);
+            }, function(err) {
+                console.error("Firebase fechamentos erro " + loja.id + ":", err);
+            });
+        });
+        return function() { unsubscribes.forEach(function(u) { u && u(); }); };
+    }
+
+    // ===== METAS (lançadas pelo Admin) =====
+    async function salvarMetas(metas) {
+        const ref = db.collection("config").doc("metas");
+        await ref.set({ metas: metas, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    }
+
+    function ouvirMetas(callback) {
+        const ref = db.collection("config").doc("metas");
+        return ref.onSnapshot(function(snap) {
+            callback(snap.exists ? (snap.data().metas || {}) : {});
+        }, function() { callback({}); });
+    }
+
     window.TrocaDB = {
         salvarTroca, atualizarStatus, atualizarTroca, deletarTroca,
         ouvirTrocas, ouvirTodasLojas, salvarEstoque, ouvirEstoque,
-        seedInventoryAllStores
+        seedInventoryAllStores,
+        salvarFechamento, getFechamento, ouvirTodosFechamentos,
+        salvarMetas, ouvirMetas
     };
 
     console.log("Firebase TrocaDB pronto (compat mode)!");
@@ -403,6 +444,23 @@ const MONTH_NAMES_PT = ['Janeiro','Fevereiro','Marco','Abril','Maio','Junho','Ju
 const DAY_NAMES_PT   = ['Dom','Seg','Ter','Qua','Qui','Sex','Sab'];
 
 const fmt = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
+const num = (v) => {
+    if (typeof v === 'number') return isNaN(v) ? 0 : v;
+    if (!v) return 0;
+    let s = String(v).trim().replace(/[R$\s]/g, '');
+    if (s.includes(',')) {
+        // formato BR: pontos sao milhar, virgula e decimal (165.315,00)
+        s = s.replace(/\./g, '').replace(',', '.');
+    } else {
+        // so pontos: se cada grupo apos o ponto tem 3 digitos, sao milhares (165.315)
+        const parts = s.split('.');
+        if (parts.length > 1 && parts.slice(1).every(p => p.length === 3)) {
+            s = parts.join('');
+        }
+    }
+    const n = parseFloat(s);
+    return isNaN(n) ? 0 : n;
+};
 
 function parseDateKey(dateStr) {
     if (!dateStr) return null;
@@ -501,6 +559,7 @@ function App() {
     const [currentPage, setCurrentPage] = useState('new-exchange');
     const [exchanges, setExchanges] = useState([]);
     const [inventory, setInventory] = useState(INITIAL_INVENTORY);
+    const [metas, setMetas] = useState({});
     const [syncStatus, setSyncStatus] = useState('loading');
     const [loading, setLoading] = useState(false);
     const unsubscribeRef = useRef([]);
@@ -510,6 +569,7 @@ function App() {
         if (!currentStore || currentStore.isAdmin) return;
         let unsubExchanges = null;
         let unsubInventory = null;
+        let unsubMetas = null;
         setLoading(true);
         try {
             unsubExchanges = window.TrocaDB.ouvirTrocas(currentStore.id, (trocas) => {
@@ -520,7 +580,8 @@ function App() {
             unsubInventory = window.TrocaDB.ouvirEstoque(
                 currentStore.id, INITIAL_INVENTORY, (inv) => setInventory(inv)
             );
-            unsubscribeRef.current = [unsubExchanges, unsubInventory];
+            unsubMetas = window.TrocaDB.ouvirMetas((m) => setMetas(m || {}));
+            unsubscribeRef.current = [unsubExchanges, unsubInventory, unsubMetas];
         } catch(e) {
             console.error(e);
             setSyncStatus('offline');
@@ -571,6 +632,7 @@ function App() {
                         {[
                             { id: 'new-exchange', icon: '➕', label: 'Nova Troca' },
                             { id: 'history',      icon: '📋', label: 'Historico' },
+                            { id: 'fechamento',   icon: '🧾', label: 'Fechamento' },
                             { id: 'inventory',    icon: '📦', label: 'Estoque' },
                             { id: 'reports',      icon: '📊', label: 'Relatorios' },
                         ].map(item => (
@@ -590,6 +652,8 @@ function App() {
                     <NewExchangePage storeId={currentStore.id} inventory={inventory} showToast={showToast} />}
                 {currentPage === 'history' &&
                     <HistoryPage storeId={currentStore.id} exchanges={exchanges} showToast={showToast} />}
+                {currentPage === 'fechamento' &&
+                    <FechamentoPage storeId={currentStore.id} storeName={currentStore.name} exchanges={exchanges} metas={metas} showToast={showToast} />}
                 {currentPage === 'inventory' &&
                     <InventoryPage inventory={inventory} onSave={handleSaveInventory} showToast={showToast} />}
                 {currentPage === 'reports' &&
@@ -601,6 +665,8 @@ function App() {
 
 function AdminView({ onLogout, showToast }) {
     const [storeExchanges, setStoreExchanges] = useState({});
+    const [storeFechamentos, setStoreFechamentos] = useState({});
+    const [metas, setMetas] = useState({});
     const [selectedStore, setSelectedStore] = useState('all');
     const [selectedExchange, setSelectedExchange] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -608,12 +674,18 @@ function AdminView({ onLogout, showToast }) {
     const unsubRef = useRef(null);
 
     useEffect(() => {
+        const unsubs = [];
         try {
-            unsubRef.current = window.TrocaDB.ouvirTodasLojas(STORES, (storeId, trocas) => {
+            unsubs.push(window.TrocaDB.ouvirTodasLojas(STORES, (storeId, trocas) => {
                 setStoreExchanges(prev => ({ ...prev, [storeId]: trocas }));
                 setLoading(false);
-            });
+            }));
+            unsubs.push(window.TrocaDB.ouvirTodosFechamentos(STORES, (storeId, fechs) => {
+                setStoreFechamentos(prev => ({ ...prev, [storeId]: fechs }));
+            }));
+            unsubs.push(window.TrocaDB.ouvirMetas((m) => setMetas(m || {})));
         } catch(e) { console.error(e); setLoading(false); }
+        unsubRef.current = () => unsubs.forEach(u => u && u());
         return () => unsubRef.current && unsubRef.current();
     }, []);
 
@@ -657,6 +729,16 @@ function AdminView({ onLogout, showToast }) {
                             </div>
                         </li>
                         <li className="nav-item">
+                            <div className={`nav-link ${adminPage === 'fechamentos' ? 'active' : ''}`} onClick={() => setAdminPage('fechamentos')}>
+                                <span className="nav-icon">🧾</span>Fechamento Caixa
+                            </div>
+                        </li>
+                        <li className="nav-item">
+                            <div className={`nav-link ${adminPage === 'metas' ? 'active' : ''}`} onClick={() => setAdminPage('metas')}>
+                                <span className="nav-icon">🎯</span>Metas das Lojas
+                            </div>
+                        </li>
+                        <li className="nav-item">
                             <div className={`nav-link ${adminPage === 'calendar' ? 'active' : ''}`} onClick={() => setAdminPage('calendar')}>
                                 <span className="nav-icon">🗓️</span>Calendario Global
                             </div>
@@ -671,6 +753,12 @@ function AdminView({ onLogout, showToast }) {
                 <button className="logout-btn" onClick={onLogout}>🚪 Sair</button>
             </aside>
             <main className="main-content">
+                {adminPage === 'fechamentos' && (
+                    <AdminFechamentosPage storeFechamentos={storeFechamentos} metas={metas} showToast={showToast} />
+                )}
+                {adminPage === 'metas' && (
+                    <AdminMetasPage metas={metas} showToast={showToast} />
+                )}
                 {adminPage === 'calendar' && (
                     <div>
                         <div className="header">
@@ -1621,6 +1709,715 @@ function EditExchangeModal({ exchange, storeId, onClose, onSaved }) {
     );
 }
 
+// ===================== FECHAMENTO DE CAIXA =====================
+const EMPTY_FECH = {
+    creditoCartao:'', creditoLink:'', debito:'', dinheiro:'', pixQr:'', pixCnpj:'', nfBoleto:'', nfCredito:'',
+    sangria:'', usoCaixa:'', observacoes:'',
+    vendedoras: [], acessorios: [], intercorrencias: []
+};
+
+const INT_TIPOS = ['Cancelamento', 'Troca lancada errada', 'Divergencia de valor', 'Estorno', 'Outro'];
+const ACC_TIPOS = ['PIX', 'Credito', 'Debito', 'Dinheiro', 'Link de Pagamento'];
+
+function FieldMoney({ label, value, onChange }) {
+    return (
+        <div className="form-group">
+            <label className="form-label">{label}</label>
+            <input type="text" inputMode="decimal" className="form-input" value={value}
+                onChange={e => onChange(e.target.value)} placeholder="0,00" />
+            {num(value) > 0 && <div style={{ fontSize:'0.8rem', color:'var(--text-muted)', marginTop:'0.25rem' }}>= {fmt(num(value))}</div>}
+        </div>
+    );
+}
+
+function calcFechTotais(f) {
+    const totalCredito = num(f.creditoCartao) + num(f.creditoLink);
+    const totalPix = num(f.pixQr) + num(f.pixCnpj);
+    const totalNF = num(f.nfBoleto) + num(f.nfCredito);
+    const totalVendido = totalCredito + num(f.debito) + num(f.dinheiro) + totalPix + totalNF;
+    const totalSaidas = num(f.sangria) + num(f.usoCaixa);
+    const saldoDinheiro = num(f.dinheiro) - totalSaidas;
+    return { totalCredito, totalPix, totalNF, totalVendido, totalSaidas, saldoDinheiro };
+}
+
+function FechamentoPage({ storeId, storeName, exchanges, metas, showToast }) {
+    const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+    const [fech, setFech] = useState({ ...EMPTY_FECH });
+    const [loadingF, setLoadingF] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [showPrint, setShowPrint] = useState(false);
+    const [newVend, setNewVend] = useState({ nome:'', valor:'', atendimentos:'' });
+    const [newAcc, setNewAcc] = useState({ valorVenda:'', tipoVenda:'PIX', valorItem:'', valorFrete:'', vendedora:'' });
+    const [newInt, setNewInt] = useState({ tipo:'Cancelamento', ticket:'', descricao:'' });
+
+    useEffect(() => {
+        let active = true;
+        setLoadingF(true);
+        window.TrocaDB.getFechamento(storeId, date).then(data => {
+            if (!active) return;
+            setFech(data ? { ...EMPTY_FECH, ...data } : { ...EMPTY_FECH });
+            setLoadingF(false);
+        }).catch(err => {
+            console.error('Erro ao carregar fechamento:', err);
+            if (active) { setFech({ ...EMPTY_FECH }); setLoadingF(false); }
+        });
+        return () => { active = false; };
+    }, [storeId, date]);
+
+    const trocasDoDia = useMemo(() => exchanges.filter(ex => ex.date === date), [exchanges, date]);
+    const valorTrocas = trocasDoDia.reduce((s, e) => s + (e.difference || 0), 0);
+
+    const monthKey = date.slice(0, 7);
+    const metaMensal = num(((metas || {})[storeId] || {})[monthKey]);
+    const dParts = date.split('-');
+    const diasNoMes = new Date(parseInt(dParts[0]), parseInt(dParts[1]), 0).getDate();
+    const objetivoDia = metaMensal > 0 ? metaMensal / diasNoMes : 0;
+
+    const { totalCredito, totalPix, totalNF, totalVendido, totalSaidas, saldoDinheiro } = calcFechTotais(fech);
+    const pctBatido = objetivoDia > 0 ? (totalVendido / objetivoDia) * 100 : 0;
+
+    const setF = (k, v) => setFech(p => ({ ...p, [k]: v }));
+
+    const addVend = () => {
+        if (!newVend.nome) return;
+        setF('vendedoras', [...(fech.vendedoras || []), { id: Date.now(), nome: newVend.nome.toUpperCase(), valor: num(newVend.valor), atendimentos: parseInt(newVend.atendimentos || 0) }]);
+        setNewVend({ nome:'', valor:'', atendimentos:'' });
+    };
+    const addAcc = () => {
+        if (!num(newAcc.valorItem) && !num(newAcc.valorFrete)) return;
+        setF('acessorios', [...(fech.acessorios || []), {
+            id: Date.now(), tipoVenda: newAcc.tipoVenda, vendedora: newAcc.vendedora.toUpperCase(),
+            valorVenda: num(newAcc.valorVenda), valorItem: num(newAcc.valorItem), valorFrete: num(newAcc.valorFrete),
+            totalPago: num(newAcc.valorItem) + num(newAcc.valorFrete)
+        }]);
+        setNewAcc({ valorVenda:'', tipoVenda:'PIX', valorItem:'', valorFrete:'', vendedora:'' });
+    };
+    const addInt = () => {
+        if (!newInt.descricao && !newInt.ticket) return;
+        setF('intercorrencias', [...(fech.intercorrencias || []), { id: Date.now(), tipo: newInt.tipo, ticket: newInt.ticket, descricao: newInt.descricao }]);
+        setNewInt({ tipo:'Cancelamento', ticket:'', descricao:'' });
+    };
+    const removeFrom = (key, id) => setF(key, (fech[key] || []).filter(i => i.id !== id));
+
+    const handleSave = async () => {
+        setSaving(true);
+        try {
+            await window.TrocaDB.salvarFechamento(storeId, date, {
+                ...fech, storeName,
+                valorTrocas, trocasCount: trocasDoDia.length,
+                metaMensal, objetivoDia, pctBatido,
+                totalCredito, totalPix, totalNF, totalVendido, totalSaidas, saldoDinheiro
+            });
+            showToast('Fechamento salvo! ✅');
+        } catch(e) { console.error(e); showToast('Erro ao salvar fechamento', 'error'); }
+        finally { setSaving(false); }
+    };
+
+    const handlePrint = () => {
+        setShowPrint(true);
+        setTimeout(() => { window.print(); setTimeout(() => setShowPrint(false), 500); }, 300);
+    };
+
+    return (
+        <div>
+            {showPrint && <PrintFechamento storeName={storeName} date={date} fech={fech} trocasDoDia={trocasDoDia}
+                valorTrocas={valorTrocas} objetivoDia={objetivoDia} totalVendido={totalVendido} pctBatido={pctBatido}
+                totalCredito={totalCredito} totalPix={totalPix} totalNF={totalNF} totalSaidas={totalSaidas} saldoDinheiro={saldoDinheiro} />}
+            <div className="header">
+                <h1 className="page-title">🧾 Fechamento de Caixa</h1>
+                <p className="page-subtitle">Trocas do dia entram automaticamente • salve e imprima em PDF para o grupo</p>
+            </div>
+            <div className="card">
+                <div className="form-row">
+                    <div className="form-group">
+                        <label className="form-label">📅 Data do Fechamento</label>
+                        <input type="date" className="form-input" value={date} onChange={e => setDate(e.target.value)} />
+                    </div>
+                </div>
+                {loadingF && <div style={{ color:'var(--text-secondary)', fontSize:'0.9rem' }}>⏳ Carregando fechamento desta data...</div>}
+                {!loadingF && (
+                    <div className="stats-grid" style={{ marginBottom: 0 }}>
+                        <div className="stat-card"><span className="stat-icon">🎯</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{objetivoDia > 0 ? fmt(objetivoDia) : '—'}</span><span className="stat-label">{metaMensal > 0 ? 'Objetivo do Dia (meta ' + fmt(metaMensal) + '/mes)' : 'Objetivo do Dia (adm ainda nao lancou a meta)'}</span></div>
+                        <div className="stat-card"><span className="stat-icon">💰</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totalVendido)}</span><span className="stat-label">Vendido</span></div>
+                        <div className="stat-card"><span className="stat-icon">📈</span><span className="stat-value" style={{ fontSize:'1.6rem', color: pctBatido >= 100 ? 'var(--success)' : pctBatido >= 70 ? 'var(--warning)' : 'var(--danger)' }}>{objetivoDia > 0 ? pctBatido.toFixed(0) + '%' : '—'}</span><span className="stat-label">% Batido</span></div>
+                        <div className="stat-card"><span className="stat-icon">🔄</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(valorTrocas)}</span><span className="stat-label">Trocas do Dia ({trocasDoDia.length}) — automatico</span></div>
+                    </div>
+                )}
+            </div>
+            {!loadingF && (
+            <>
+            <div className="card">
+                <h2 className="card-title">💳 Formas de Recebimento</h2>
+                <div className="form-row">
+                    <FieldMoney label="Crédito — Cartão" value={fech.creditoCartao} onChange={v => setF('creditoCartao', v)} />
+                    <FieldMoney label="Crédito — Link de Pagamento" value={fech.creditoLink} onChange={v => setF('creditoLink', v)} />
+                    <FieldMoney label="Débito" value={fech.debito} onChange={v => setF('debito', v)} />
+                </div>
+                <div className="form-row">
+                    <FieldMoney label="Dinheiro" value={fech.dinheiro} onChange={v => setF('dinheiro', v)} />
+                    <FieldMoney label="PIX — QRCode" value={fech.pixQr} onChange={v => setF('pixQr', v)} />
+                    <FieldMoney label="PIX — Chave CNPJ" value={fech.pixCnpj} onChange={v => setF('pixCnpj', v)} />
+                </div>
+                <div className="form-row">
+                    <FieldMoney label="Nota Fiscal — Boleto" value={fech.nfBoleto} onChange={v => setF('nfBoleto', v)} />
+                    <FieldMoney label="Nota Fiscal — Crédito (Parcelado ou Link)" value={fech.nfCredito} onChange={v => setF('nfCredito', v)} />
+                </div>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:'1rem', marginTop:'0.5rem' }}>
+                    <div className="cal-summary-item"><span className="cal-summary-value">{fmt(totalCredito)}</span><div className="cal-summary-label">💳 Total Crédito</div></div>
+                    <div className="cal-summary-item"><span className="cal-summary-value">{fmt(num(fech.debito))}</span><div className="cal-summary-label">🏧 Total Débito</div></div>
+                    <div className="cal-summary-item"><span className="cal-summary-value">{fmt(totalPix)}</span><div className="cal-summary-label">📱 Total PIX</div></div>
+                    <div className="cal-summary-item"><span className="cal-summary-value">{fmt(num(fech.dinheiro))}</span><div className="cal-summary-label">💵 Dinheiro</div></div>
+                    <div className="cal-summary-item"><span className="cal-summary-value">{fmt(totalNF)}</span><div className="cal-summary-label">🧾 Nota Fiscal</div></div>
+                </div>
+            </div>
+            <div className="card">
+                <h2 className="card-title">🏆 Vendas por Vendedora</h2>
+                <div className="form-row">
+                    <div className="form-group"><label className="form-label">Vendedora</label><input className="form-input" value={newVend.nome} onChange={e => setNewVend({...newVend, nome: e.target.value})} placeholder="Nome" /></div>
+                    <div className="form-group"><label className="form-label">Valor Vendido (R$)</label><input type="text" inputMode="decimal" className="form-input" value={newVend.valor} onChange={e => setNewVend({...newVend, valor: e.target.value})} placeholder="0,00" /></div>
+                    <div className="form-group"><label className="form-label">Nº Atendimentos</label><input type="number" className="form-input" value={newVend.atendimentos} onChange={e => setNewVend({...newVend, atendimentos: e.target.value})} placeholder="0" /></div>
+                    <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}><button type="button" className="btn btn-primary" onClick={addVend} style={{ width:'100%' }}>➕ Adicionar</button></div>
+                </div>
+                {(fech.vendedoras || []).length > 0 && (
+                    <div className="table-container">
+                        <table className="table">
+                            <thead><tr><th>Vendedora</th><th>Valor Vendido</th><th>Atendimentos</th><th>Ticket Médio</th><th></th></tr></thead>
+                            <tbody>
+                                {(fech.vendedoras || []).map(v => (
+                                    <tr key={v.id}>
+                                        <td style={{ fontWeight:'700' }}>{v.nome}</td>
+                                        <td>{fmt(v.valor)}</td>
+                                        <td>{v.atendimentos || '-'}</td>
+                                        <td style={{ color:'var(--accent)', fontWeight:'700' }}>{v.atendimentos > 0 ? fmt(v.valor / v.atendimentos) : '-'}</td>
+                                        <td><button className="btn btn-danger btn-small" onClick={() => removeFrom('vendedoras', v.id)}>🗑️</button></td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
+            <div className="card">
+                <h2 className="card-title">📦 Frete, Bandejas, Caixas e Acessórios</h2>
+                <div className="form-row">
+                    <div className="form-group"><label className="form-label">Valor da Venda (PDV)</label><input type="text" inputMode="decimal" className="form-input" value={newAcc.valorVenda} onChange={e => setNewAcc({...newAcc, valorVenda: e.target.value})} placeholder="0,00" /></div>
+                    <div className="form-group"><label className="form-label">Tipo de Venda</label>
+                        <select className="form-select" value={newAcc.tipoVenda} onChange={e => setNewAcc({...newAcc, tipoVenda: e.target.value})}>
+                            {ACC_TIPOS.map(t => <option key={t}>{t}</option>)}
+                        </select>
+                    </div>
+                    <div className="form-group"><label className="form-label">Valor do Item</label><input type="text" inputMode="decimal" className="form-input" value={newAcc.valorItem} onChange={e => setNewAcc({...newAcc, valorItem: e.target.value})} placeholder="0,00" /></div>
+                    <div className="form-group"><label className="form-label">Valor do Frete</label><input type="text" inputMode="decimal" className="form-input" value={newAcc.valorFrete} onChange={e => setNewAcc({...newAcc, valorFrete: e.target.value})} placeholder="0,00" /></div>
+                    <div className="form-group"><label className="form-label">Vendedora</label><input className="form-input" value={newAcc.vendedora} onChange={e => setNewAcc({...newAcc, vendedora: e.target.value})} placeholder="Nome" /></div>
+                    <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}><button type="button" className="btn btn-primary" onClick={addAcc} style={{ width:'100%' }}>➕</button></div>
+                </div>
+                {(fech.acessorios || []).length > 0 && (
+                    <div className="table-container">
+                        <table className="table">
+                            <thead><tr><th>Venda (PDV)</th><th>Tipo</th><th>Item</th><th>Frete</th><th>Total Pago</th><th>Vendedora</th><th></th></tr></thead>
+                            <tbody>
+                                {(fech.acessorios || []).map(a => (
+                                    <tr key={a.id}>
+                                        <td>{fmt(a.valorVenda)}</td>
+                                        <td>{a.tipoVenda}</td>
+                                        <td>{fmt(a.valorItem)}</td>
+                                        <td>{fmt(a.valorFrete)}</td>
+                                        <td style={{ fontWeight:'700', color:'var(--accent)' }}>{fmt(a.totalPago)}</td>
+                                        <td>{a.vendedora || '-'}</td>
+                                        <td><button className="btn btn-danger btn-small" onClick={() => removeFrom('acessorios', a.id)}>🗑️</button></td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
+            <div className="card">
+                <h2 className="card-title">🔄 Trocas do Dia (automático) • Sangria • Uso de Caixa</h2>
+                {trocasDoDia.length > 0 ? (
+                    <div className="table-container" style={{ marginBottom:'1.5rem' }}>
+                        <table className="table">
+                            <thead><tr><th>No Venda</th><th>Cliente</th><th>Vendedor</th><th>Diferença</th><th>Status</th></tr></thead>
+                            <tbody>
+                                {trocasDoDia.map(ex => (
+                                    <tr key={ex.id}>
+                                        <td style={{ fontWeight:'700' }}>{ex.saleNumber}</td>
+                                        <td>{ex.customerName}</td>
+                                        <td>{ex.salesPerson || '-'}</td>
+                                        <td style={{ color: ex.difference >= 0 ? 'var(--success)' : 'var(--danger)', fontWeight:'700' }}>{fmt(ex.difference)}</td>
+                                        <td><span className={`badge badge-${ex.status}`}>{ex.status === 'pending' ? '⏳' : '✅'}</span></td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <div style={{ color:'var(--text-secondary)', marginBottom:'1.5rem', fontSize:'0.95rem' }}>Nenhuma troca registrada nesta data.</div>
+                )}
+                <div style={{ padding:'0.75rem 1rem', background:'rgba(255,107,53,0.08)', border:'1px solid var(--primary)', borderRadius:'12px', marginBottom:'1.5rem', fontWeight:'700' }}>
+                    Valor das Trocas: <span style={{ color:'var(--primary)' }}>{fmt(valorTrocas)}</span>
+                </div>
+                <div className="form-row">
+                    <FieldMoney label="Valor da Sangria" value={fech.sangria} onChange={v => setF('sangria', v)} />
+                    <FieldMoney label="Uso de Caixa" value={fech.usoCaixa} onChange={v => setF('usoCaixa', v)} />
+                </div>
+                <div className="cal-summary-item" style={{ textAlign:'left', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                    <span style={{ fontWeight:'700' }}>💵 Saldo em Dinheiro (Dinheiro − Sangria − Uso de Caixa)</span>
+                    <span className="cal-summary-value" style={{ color: saldoDinheiro >= 0 ? 'var(--success)' : 'var(--danger)' }}>{fmt(saldoDinheiro)}</span>
+                </div>
+            </div>
+            <div className="card">
+                <h2 className="card-title">⚠️ Intercorrências / Cancelamentos</h2>
+                <div className="form-row">
+                    <div className="form-group"><label className="form-label">Tipo</label>
+                        <select className="form-select" value={newInt.tipo} onChange={e => setNewInt({...newInt, tipo: e.target.value})}>
+                            {INT_TIPOS.map(t => <option key={t}>{t}</option>)}
+                        </select>
+                    </div>
+                    <div className="form-group"><label className="form-label">Nº do Ticket</label><input className="form-input" value={newInt.ticket} onChange={e => setNewInt({...newInt, ticket: e.target.value})} placeholder="Ex: 17081" /></div>
+                    <div className="form-group"><label className="form-label">Descrição</label><input className="form-input" value={newInt.descricao} onChange={e => setNewInt({...newInt, descricao: e.target.value})} placeholder="Ex: lancada em dinheiro, cobranca no credito" /></div>
+                    <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}><button type="button" className="btn btn-warning" onClick={addInt} style={{ width:'100%' }}>➕ Registrar</button></div>
+                </div>
+                {(fech.intercorrencias || []).map(it => (
+                    <div key={it.id} className="item-card">
+                        <div className="item-info">
+                            <div className="item-description">{it.tipo}{it.ticket ? ' — Ticket ' + it.ticket : ''}</div>
+                            <div className="item-condition">{it.descricao}</div>
+                        </div>
+                        <button className="btn btn-danger btn-small" onClick={() => removeFrom('intercorrencias', it.id)}>🗑️</button>
+                    </div>
+                ))}
+                <div className="form-group" style={{ marginTop:'1rem', marginBottom:0 }}>
+                    <label className="form-label">Observações Gerais</label>
+                    <textarea className="form-textarea" value={fech.observacoes} onChange={e => setF('observacoes', e.target.value)} placeholder="Observações do dia..." />
+                </div>
+            </div>
+            <div style={{ display:'flex', gap:'1rem', flexWrap:'wrap' }}>
+                <button className="btn btn-success" style={{ flex:2, minWidth:'220px' }} onClick={handleSave} disabled={saving}>{saving ? '⏳ Salvando...' : '💾 Salvar Fechamento'}</button>
+                <button className="btn btn-secondary" style={{ flex:1, minWidth:'180px' }} onClick={handlePrint}>🖨️ Imprimir / PDF p/ WhatsApp</button>
+            </div>
+            </>
+            )}
+        </div>
+    );
+}
+
+function PrintFechamento({ storeName, date, fech, trocasDoDia, valorTrocas, objetivoDia, totalVendido, pctBatido, totalCredito, totalPix, totalNF, totalSaidas, saldoDinheiro }) {
+    return (
+        <div id="print-fechamento" style={{ position:'fixed', top:0, left:0, width:'100%', zIndex:99999, background:'white', minHeight:'100vh', padding:'1.5rem' }}>
+            <div className="receipt-wrap" style={{ maxWidth:'680px', width:'100%' }}>
+                <div className="receipt-logo">FECHAMENTO OPERACIONAL - CAIXA</div>
+                <div className="receipt-sub">{storeName} — {parseDateKey(date) ? parseDateKey(date).toLocaleDateString('pt-BR', { weekday:'long', day:'numeric', month:'long', year:'numeric' }) : date}</div>
+                <hr className="receipt-divider" />
+                <div className="receipt-row"><span>Objetivo do Dia:</span><strong>{objetivoDia > 0 ? fmt(objetivoDia) : '-'}</strong></div>
+                <div className="receipt-row"><span>Vendido:</span><strong>{fmt(totalVendido)}</strong></div>
+                <div className="receipt-row"><span>% Batido:</span><strong>{objetivoDia > 0 ? pctBatido.toFixed(0) + '%' : '-'}</strong></div>
+                <hr className="receipt-divider" />
+                <div className="receipt-section-title">FORMAS DE RECEBIMENTO</div>
+                <div className="receipt-item"><span>Crédito — Cartão</span><strong>{fmt(num(fech.creditoCartao))}</strong></div>
+                <div className="receipt-item"><span>Crédito — Link de Pagamento</span><strong>{fmt(num(fech.creditoLink))}</strong></div>
+                <div className="receipt-item"><span>Débito</span><strong>{fmt(num(fech.debito))}</strong></div>
+                <div className="receipt-item"><span>Dinheiro</span><strong>{fmt(num(fech.dinheiro))}</strong></div>
+                <div className="receipt-item"><span>PIX — QRCode</span><strong>{fmt(num(fech.pixQr))}</strong></div>
+                <div className="receipt-item"><span>PIX — Chave CNPJ</span><strong>{fmt(num(fech.pixCnpj))}</strong></div>
+                <div className="receipt-item"><span>NF — Boleto</span><strong>{fmt(num(fech.nfBoleto))}</strong></div>
+                <div className="receipt-item"><span>NF — Crédito (Parcelado/Link)</span><strong>{fmt(num(fech.nfCredito))}</strong></div>
+                <div className="receipt-total"><span>TOTAL VENDIDO</span><span>{fmt(totalVendido)}</span></div>
+                {(fech.vendedoras || []).length > 0 && (
+                    <>
+                        <hr className="receipt-divider" />
+                        <div className="receipt-section-title">VENDAS POR VENDEDORA</div>
+                        {(fech.vendedoras || []).map(v => (
+                            <div key={v.id} className="receipt-item"><span>{v.nome}{v.atendimentos > 0 ? ' (' + v.atendimentos + ' atend. • TM ' + fmt(v.valor / v.atendimentos) + ')' : ''}</span><strong>{fmt(v.valor)}</strong></div>
+                        ))}
+                    </>
+                )}
+                {(fech.acessorios || []).length > 0 && (
+                    <>
+                        <hr className="receipt-divider" />
+                        <div className="receipt-section-title">FRETE, BANDEJAS, CAIXAS E ACESSÓRIOS</div>
+                        {(fech.acessorios || []).map(a => (
+                            <div key={a.id} className="receipt-item"><span>{a.tipoVenda}{a.vendedora ? ' • ' + a.vendedora : ''} (item {fmt(a.valorItem)} + frete {fmt(a.valorFrete)})</span><strong>{fmt(a.totalPago)}</strong></div>
+                        ))}
+                    </>
+                )}
+                <hr className="receipt-divider" />
+                <div className="receipt-section-title">TROCAS DO DIA ({trocasDoDia.length})</div>
+                {trocasDoDia.map(ex => (
+                    <div key={ex.id} className="receipt-item"><span>#{ex.saleNumber} — {ex.customerName}{ex.salesPerson ? ' (' + ex.salesPerson + ')' : ''}</span><strong>{fmt(ex.difference)}</strong></div>
+                ))}
+                <div className="receipt-total"><span>VALOR DAS TROCAS</span><span>{fmt(valorTrocas)}</span></div>
+                <hr className="receipt-divider" />
+                <div className="receipt-section-title">SANGRIA E USO DE CAIXA</div>
+                <div className="receipt-item"><span>Valor da Sangria</span><strong>{fmt(num(fech.sangria))}</strong></div>
+                <div className="receipt-item"><span>Uso de Caixa</span><strong>{fmt(num(fech.usoCaixa))}</strong></div>
+                <div className="receipt-diff" style={{ borderColor: saldoDinheiro >= 0 ? '#16a34a' : '#dc2626', color: saldoDinheiro >= 0 ? '#16a34a' : '#dc2626' }}>
+                    SALDO EM DINHEIRO: {fmt(saldoDinheiro)}
+                </div>
+                {(fech.intercorrencias || []).length > 0 && (
+                    <>
+                        <div className="receipt-section-title">INTERCORRÊNCIAS / CANCELAMENTOS</div>
+                        {(fech.intercorrencias || []).map(it => (
+                            <div key={it.id} className="receipt-item"><span>{it.tipo}{it.ticket ? ' — Ticket ' + it.ticket : ''}: {it.descricao}</span></div>
+                        ))}
+                    </>
+                )}
+                {fech.observacoes && (
+                    <>
+                        <hr className="receipt-divider" />
+                        <div className="receipt-section-title">OBSERVAÇÕES GERAIS</div>
+                        <div style={{ fontSize:'0.8rem' }}>{fech.observacoes}</div>
+                    </>
+                )}
+                <div className="receipt-footer">Gerado em {new Date().toLocaleString('pt-BR')} - TrocaFacil</div>
+            </div>
+        </div>
+    );
+}
+
+function AdminFechamentosPage({ storeFechamentos, metas, showToast }) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const [mode, setMode] = useState('day');
+    const [refDate, setRefDate] = useState(todayStr);
+    const [refMonth, setRefMonth] = useState(todayStr.slice(0, 7));
+    const [customStart, setCustomStart] = useState(todayStr);
+    const [customEnd, setCustomEnd] = useState(todayStr);
+    const [storeFilter, setStoreFilter] = useState('all');
+    const [showPrint, setShowPrint] = useState(false);
+
+    const range = useMemo(() => {
+        if (mode === 'day') return [refDate, refDate];
+        if (mode === 'week') {
+            const d = parseDateKey(refDate);
+            if (!d) return [refDate, refDate];
+            const start = new Date(d); start.setDate(d.getDate() - d.getDay());
+            const end = new Date(start); end.setDate(start.getDate() + 6);
+            return [dateKey(start), dateKey(end)];
+        }
+        if (mode === 'month') return [refMonth + '-01', refMonth + '-31'];
+        return [customStart, customEnd];
+    }, [mode, refDate, refMonth, customStart, customEnd]);
+
+    const filtered = useMemo(() => {
+        return Object.values(storeFechamentos).flat()
+            .filter(f => f.date && f.date >= range[0] && f.date <= range[1] && (storeFilter === 'all' || f.storeId === storeFilter))
+            .sort((a, b) => (b.date > a.date ? 1 : -1));
+    }, [storeFechamentos, range, storeFilter]);
+
+    const totals = useMemo(() => {
+        const t = { credito: 0, debito: 0, pix: 0, dinheiro: 0, nf: 0, vendido: 0, trocas: 0, sangria: 0, usoCaixa: 0, saldo: 0, objetivo: 0 };
+        filtered.forEach(f => {
+            const c = calcFechTotais(f);
+            t.credito += c.totalCredito; t.debito += num(f.debito); t.pix += c.totalPix;
+            t.dinheiro += num(f.dinheiro); t.nf += c.totalNF; t.vendido += c.totalVendido;
+            t.trocas += num(f.valorTrocas); t.sangria += num(f.sangria); t.usoCaixa += num(f.usoCaixa);
+            t.saldo += c.saldoDinheiro; t.objetivo += num(f.objetivoDia);
+        });
+        return t;
+    }, [filtered]);
+
+    const ranking = useMemo(() => {
+        const map = {};
+        filtered.forEach(f => (f.vendedoras || []).forEach(v => {
+            const k = (v.nome || '').trim().toUpperCase();
+            if (!k) return;
+            if (!map[k]) map[k] = { nome: k, valor: 0, atendimentos: 0, lojas: {} };
+            map[k].valor += num(v.valor);
+            map[k].atendimentos += parseInt(v.atendimentos || 0);
+            map[k].lojas[f.storeName] = true;
+        }));
+        return Object.values(map).sort((a, b) => b.valor - a.valor).slice(0, 10);
+    }, [filtered]);
+
+    const inters = useMemo(() => {
+        return filtered.flatMap(f => (f.intercorrencias || []).map(i => ({ ...i, date: f.date, storeName: f.storeName })));
+    }, [filtered]);
+
+    const handleExportExcel = () => {
+        if (!filtered.length) { alert('Nao ha fechamentos no periodo'); return; }
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filtered.map(f => {
+            const c = calcFechTotais(f);
+            return {
+                'Data': f.date, 'Loja': f.storeName,
+                'Objetivo Dia': num(f.objetivoDia), 'Vendido': c.totalVendido,
+                '% Batido': num(f.objetivoDia) > 0 ? Math.round((c.totalVendido / num(f.objetivoDia)) * 100) + '%' : '-',
+                'Credito Cartao': num(f.creditoCartao), 'Credito Link': num(f.creditoLink),
+                'Debito': num(f.debito), 'Dinheiro': num(f.dinheiro),
+                'PIX QRCode': num(f.pixQr), 'PIX CNPJ': num(f.pixCnpj),
+                'NF Boleto': num(f.nfBoleto), 'NF Credito': num(f.nfCredito),
+                'Trocas (qtd)': num(f.trocasCount), 'Trocas (R$)': num(f.valorTrocas),
+                'Sangria': num(f.sangria), 'Uso de Caixa': num(f.usoCaixa),
+                'Saldo Dinheiro': c.saldoDinheiro, 'Observacoes': f.observacoes || ''
+            };
+        })), 'Fechamentos');
+        if (ranking.length) {
+            XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ranking.map((r, i) => ({
+                'Posicao': i + 1, 'Vendedora': r.nome, 'Valor Vendido': r.valor,
+                'Atendimentos': r.atendimentos, 'Ticket Medio': r.atendimentos > 0 ? r.valor / r.atendimentos : 0,
+                'Lojas': Object.keys(r.lojas).join(', ')
+            }))), 'Ranking Vendedoras');
+        }
+        if (inters.length) {
+            XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(inters.map(i => ({
+                'Data': i.date, 'Loja': i.storeName, 'Tipo': i.tipo, 'Ticket': i.ticket || '', 'Descricao': i.descricao || ''
+            }))), 'Intercorrencias');
+        }
+        XLSX.writeFile(wb, 'fechamentos-' + range[0] + '-a-' + range[1] + '.xlsx');
+    };
+
+    const handlePrint = () => {
+        if (!filtered.length) { alert('Nao ha fechamentos no periodo'); return; }
+        setShowPrint(true);
+        setTimeout(() => { window.print(); setTimeout(() => setShowPrint(false), 500); }, 300);
+    };
+
+    const pctPeriodo = totals.objetivo > 0 ? (totals.vendido / totals.objetivo) * 100 : 0;
+
+    return (
+        <div>
+            {showPrint && <PrintAdminFechamentos filtered={filtered} totals={totals} range={range} ranking={ranking} inters={inters} storeFilter={storeFilter} />}
+            <div className="header">
+                <h1 className="page-title">🧾 Fechamento de Caixa — Consolidado</h1>
+                <p className="page-subtitle">Dia, semana ou mês • geral e por loja • tempo real</p>
+            </div>
+            <div className="card">
+                <div className="admin-cal-filter-bar">
+                    <span style={{ fontSize:'0.85rem', color:'var(--text-secondary)', fontWeight:'600' }}>Período:</span>
+                    <button className={`admin-cal-filter-btn ${mode === 'day' ? 'active' : ''}`} onClick={() => setMode('day')}>Dia</button>
+                    <button className={`admin-cal-filter-btn ${mode === 'week' ? 'active' : ''}`} onClick={() => setMode('week')}>Semana</button>
+                    <button className={`admin-cal-filter-btn ${mode === 'month' ? 'active' : ''}`} onClick={() => setMode('month')}>Mês</button>
+                    <button className={`admin-cal-filter-btn ${mode === 'custom' ? 'active' : ''}`} onClick={() => setMode('custom')}>Personalizado</button>
+                </div>
+                <div className="form-row">
+                    {(mode === 'day' || mode === 'week') && (
+                        <div className="form-group"><label className="form-label">{mode === 'day' ? 'Data' : 'Data de referência (semana Dom-Sáb)'}</label><input type="date" className="form-input" value={refDate} onChange={e => setRefDate(e.target.value)} /></div>
+                    )}
+                    {mode === 'month' && (
+                        <div className="form-group"><label className="form-label">Mês</label><input type="month" className="form-input" value={refMonth} onChange={e => setRefMonth(e.target.value)} /></div>
+                    )}
+                    {mode === 'custom' && (
+                        <>
+                            <div className="form-group"><label className="form-label">De</label><input type="date" className="form-input" value={customStart} onChange={e => setCustomStart(e.target.value)} /></div>
+                            <div className="form-group"><label className="form-label">Até</label><input type="date" className="form-input" value={customEnd} onChange={e => setCustomEnd(e.target.value)} /></div>
+                        </>
+                    )}
+                    <div className="form-group">
+                        <label className="form-label">Loja</label>
+                        <select className="form-select" value={storeFilter} onChange={e => setStoreFilter(e.target.value)}>
+                            <option value="all">🏪 Todas as Lojas</option>
+                            {STORES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                    </div>
+                </div>
+                <div className="action-buttons" style={{ marginBottom: 0 }}>
+                    <button className="btn btn-success" onClick={handleExportExcel}>📥 Exportar Excel</button>
+                    <button className="btn btn-secondary" onClick={handlePrint}>🖨️ Imprimir / PDF</button>
+                </div>
+            </div>
+            <div className="stats-grid">
+                <div className="stat-card"><span className="stat-icon">💳</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.credito)}</span><span className="stat-label">Crédito</span></div>
+                <div className="stat-card"><span className="stat-icon">🏧</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.debito)}</span><span className="stat-label">Débito</span></div>
+                <div className="stat-card"><span className="stat-icon">📱</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.pix)}</span><span className="stat-label">PIX</span></div>
+                <div className="stat-card"><span className="stat-icon">💵</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.dinheiro)}</span><span className="stat-label">Dinheiro</span></div>
+                <div className="stat-card"><span className="stat-icon">🧾</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.nf)}</span><span className="stat-label">Nota Fiscal</span></div>
+            </div>
+            <div className="stats-grid">
+                <div className="stat-card"><span className="stat-icon">💰</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.vendido)}</span><span className="stat-label">Total Vendido {totals.objetivo > 0 ? '(' + pctPeriodo.toFixed(0) + '% do objetivo)' : ''}</span></div>
+                <div className="stat-card"><span className="stat-icon">🔄</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.trocas)}</span><span className="stat-label">Trocas</span></div>
+                <div className="stat-card"><span className="stat-icon">📤</span><span className="stat-value" style={{ fontSize:'1.6rem', color:'var(--warning)' }}>{fmt(totals.sangria + totals.usoCaixa)}</span><span className="stat-label">Sangria + Uso de Caixa</span></div>
+                <div className="stat-card"><span className="stat-icon">🏦</span><span className="stat-value" style={{ fontSize:'1.6rem', color: totals.saldo >= 0 ? 'var(--success)' : 'var(--danger)' }}>{fmt(totals.saldo)}</span><span className="stat-label">Saldo em Dinheiro</span></div>
+            </div>
+            {ranking.length > 0 && (
+                <div className="card">
+                    <h2 className="card-title">🏆 Ranking de Vendedoras (Top 10)</h2>
+                    <div className="table-container">
+                        <table className="table">
+                            <thead><tr><th>#</th><th>Vendedora</th><th>Valor Vendido</th><th>Atendimentos</th><th>Ticket Médio</th><th>Lojas</th></tr></thead>
+                            <tbody>
+                                {ranking.map((r, i) => (
+                                    <tr key={r.nome}>
+                                        <td style={{ fontWeight:'800' }}>{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1)}</td>
+                                        <td style={{ fontWeight:'700' }}>{r.nome}</td>
+                                        <td style={{ color:'var(--success)', fontWeight:'700' }}>{fmt(r.valor)}</td>
+                                        <td>{r.atendimentos || '-'}</td>
+                                        <td style={{ color:'var(--accent)' }}>{r.atendimentos > 0 ? fmt(r.valor / r.atendimentos) : '-'}</td>
+                                        <td style={{ fontSize:'0.85rem', color:'var(--text-secondary)' }}>{Object.keys(r.lojas).join(', ')}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+            {inters.length > 0 && (
+                <div className="card">
+                    <h2 className="card-title">⚠️ Intercorrências no Período (análise Bruno)</h2>
+                    <div className="table-container">
+                        <table className="table">
+                            <thead><tr><th>Data</th><th>Loja</th><th>Tipo</th><th>Ticket</th><th>Descrição</th></tr></thead>
+                            <tbody>
+                                {inters.map((it, idx) => (
+                                    <tr key={idx}>
+                                        <td>{parseDateKey(it.date) ? parseDateKey(it.date).toLocaleDateString('pt-BR') : it.date}</td>
+                                        <td style={{ fontSize:'0.85rem' }}>{it.storeName}</td>
+                                        <td><span className="badge badge-danger">{it.tipo}</span></td>
+                                        <td style={{ fontWeight:'700' }}>{it.ticket || '-'}</td>
+                                        <td style={{ fontSize:'0.9rem' }}>{it.descricao || '-'}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+            <div className="card">
+                <h2 className="card-title">📋 Fechamentos Detalhados</h2>
+                {filtered.length > 0 ? (
+                    <div className="table-container">
+                        <table className="table">
+                            <thead><tr><th>Data</th><th>Loja</th><th>Objetivo</th><th>Vendido</th><th>%</th><th>Crédito</th><th>Débito</th><th>PIX</th><th>Dinheiro</th><th>Trocas</th><th>Sangria</th><th>Saldo</th></tr></thead>
+                            <tbody>
+                                {filtered.map(f => {
+                                    const c = calcFechTotais(f);
+                                    const pct = num(f.objetivoDia) > 0 ? (c.totalVendido / num(f.objetivoDia)) * 100 : 0;
+                                    return (
+                                        <tr key={f.storeId + '-' + f.id}>
+                                            <td>{parseDateKey(f.date) ? parseDateKey(f.date).toLocaleDateString('pt-BR') : f.date}</td>
+                                            <td style={{ fontSize:'0.85rem' }}>{f.storeName}</td>
+                                            <td>{num(f.objetivoDia) > 0 ? fmt(num(f.objetivoDia)) : '-'}</td>
+                                            <td style={{ fontWeight:'700' }}>{fmt(c.totalVendido)}</td>
+                                            <td style={{ fontWeight:'700', color: pct >= 100 ? 'var(--success)' : pct >= 70 ? 'var(--warning)' : 'var(--danger)' }}>{num(f.objetivoDia) > 0 ? pct.toFixed(0) + '%' : '-'}</td>
+                                            <td>{fmt(c.totalCredito)}</td>
+                                            <td>{fmt(num(f.debito))}</td>
+                                            <td>{fmt(c.totalPix)}</td>
+                                            <td>{fmt(num(f.dinheiro))}</td>
+                                            <td>{fmt(num(f.valorTrocas))}</td>
+                                            <td>{fmt(num(f.sangria))}</td>
+                                            <td style={{ fontWeight:'700', color: c.saldoDinheiro >= 0 ? 'var(--success)' : 'var(--danger)' }}>{fmt(c.saldoDinheiro)}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <div className="empty-state"><div className="empty-state-icon">📭</div><p>Nenhum fechamento no período selecionado</p></div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function PrintAdminFechamentos({ filtered, totals, range, ranking, inters, storeFilter }) {
+    const lojaLabel = storeFilter === 'all' ? 'Todas as Lojas' : (STORES.find(s => s.id === storeFilter) || {}).name || storeFilter;
+    return (
+        <div id="print-fechamento" style={{ position:'fixed', top:0, left:0, width:'100%', zIndex:99999, background:'white', minHeight:'100vh', padding:'1.5rem' }}>
+            <div className="receipt-wrap" style={{ maxWidth:'700px', width:'100%' }}>
+                <div className="receipt-logo">FECHAMENTO CONSOLIDADO</div>
+                <div className="receipt-sub">{lojaLabel} — {range[0]} a {range[1]}</div>
+                <hr className="receipt-divider" />
+                <div className="receipt-item"><span>Crédito</span><strong>{fmt(totals.credito)}</strong></div>
+                <div className="receipt-item"><span>Débito</span><strong>{fmt(totals.debito)}</strong></div>
+                <div className="receipt-item"><span>PIX</span><strong>{fmt(totals.pix)}</strong></div>
+                <div className="receipt-item"><span>Dinheiro</span><strong>{fmt(totals.dinheiro)}</strong></div>
+                <div className="receipt-item"><span>Nota Fiscal</span><strong>{fmt(totals.nf)}</strong></div>
+                <div className="receipt-total"><span>TOTAL VENDIDO</span><span>{fmt(totals.vendido)}</span></div>
+                <div className="receipt-item"><span>Trocas</span><strong>{fmt(totals.trocas)}</strong></div>
+                <div className="receipt-item"><span>Sangria + Uso de Caixa</span><strong>{fmt(totals.sangria + totals.usoCaixa)}</strong></div>
+                <div className="receipt-diff" style={{ borderColor: totals.saldo >= 0 ? '#16a34a' : '#dc2626', color: totals.saldo >= 0 ? '#16a34a' : '#dc2626' }}>SALDO EM DINHEIRO: {fmt(totals.saldo)}</div>
+                <hr className="receipt-divider" />
+                <div className="receipt-section-title">FECHAMENTOS ({filtered.length})</div>
+                {filtered.map(f => {
+                    const c = calcFechTotais(f);
+                    return <div key={f.storeId + '-' + f.id} className="receipt-item"><span>{f.date} — {f.storeName}</span><strong>{fmt(c.totalVendido)}</strong></div>;
+                })}
+                {ranking.length > 0 && (
+                    <>
+                        <hr className="receipt-divider" />
+                        <div className="receipt-section-title">RANKING VENDEDORAS</div>
+                        {ranking.map((r, i) => <div key={r.nome} className="receipt-item"><span>{i + 1}. {r.nome}</span><strong>{fmt(r.valor)}</strong></div>)}
+                    </>
+                )}
+                {inters.length > 0 && (
+                    <>
+                        <hr className="receipt-divider" />
+                        <div className="receipt-section-title">INTERCORRÊNCIAS</div>
+                        {inters.map((it, idx) => <div key={idx} className="receipt-item"><span>{it.date} • {it.storeName} • {it.tipo}{it.ticket ? ' #' + it.ticket : ''}: {it.descricao}</span></div>)}
+                    </>
+                )}
+                <div className="receipt-footer">Gerado em {new Date().toLocaleString('pt-BR')} - TrocaFacil</div>
+            </div>
+        </div>
+    );
+}
+
+function AdminMetasPage({ metas, showToast }) {
+    const now = new Date();
+    const [month, setMonth] = useState(now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0'));
+    const [values, setValues] = useState({});
+    const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+        const v = {};
+        STORES.forEach(s => { v[s.id] = (((metas || {})[s.id]) || {})[month] || ''; });
+        setValues(v);
+    }, [metas, month]);
+
+    const mParts = month.split('-');
+    const diasNoMes = new Date(parseInt(mParts[0]), parseInt(mParts[1]), 0).getDate();
+    const totalMetas = STORES.reduce((s, st) => s + num(values[st.id]), 0);
+
+    const handleSave = async () => {
+        setSaving(true);
+        try {
+            const novo = JSON.parse(JSON.stringify(metas || {}));
+            STORES.forEach(s => {
+                if (!novo[s.id]) novo[s.id] = {};
+                novo[s.id][month] = num(values[s.id]);
+            });
+            await window.TrocaDB.salvarMetas(novo);
+            showToast('Metas salvas! As lojas já veem o objetivo do dia. ✅');
+        } catch(e) { console.error(e); showToast('Erro ao salvar metas', 'error'); }
+        finally { setSaving(false); }
+    };
+
+    return (
+        <div>
+            <div className="header">
+                <h1 className="page-title">🎯 Metas das Lojas</h1>
+                <p className="page-subtitle">Lance a meta mensal — o objetivo do dia é calculado automaticamente (meta ÷ {diasNoMes} dias)</p>
+            </div>
+            <div className="card">
+                <div className="form-row">
+                    <div className="form-group"><label className="form-label">Mês</label><input type="month" className="form-input" value={month} onChange={e => setMonth(e.target.value)} /></div>
+                </div>
+                <div className="table-container">
+                    <table className="table">
+                        <thead><tr><th>Loja</th><th>Meta Mensal (R$)</th><th>Objetivo do Dia (auto)</th></tr></thead>
+                        <tbody>
+                            {STORES.map(s => (
+                                <tr key={s.id}>
+                                    <td style={{ fontWeight:'700' }}>{s.name}</td>
+                                    <td>
+                                        <input type="text" inputMode="decimal" className="form-input" style={{ maxWidth:'220px' }} value={values[s.id] || ''} onChange={e => setValues(p => ({ ...p, [s.id]: e.target.value }))} placeholder="Ex: 165.315,00" />
+                                        {num(values[s.id]) > 0 && <div style={{ fontSize:'0.8rem', color:'var(--text-muted)', marginTop:'0.25rem' }}>= {fmt(num(values[s.id]))}</div>}
+                                    </td>
+                                    <td style={{ color:'var(--accent)', fontWeight:'700' }}>{num(values[s.id]) > 0 ? fmt(num(values[s.id]) / diasNoMes) : '-'}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:'1.5rem', flexWrap:'wrap', gap:'1rem' }}>
+                    <div style={{ fontWeight:'700' }}>Total da rede no mês: <span style={{ color:'var(--success)' }}>{fmt(totalMetas)}</span></div>
+                    <button className="btn btn-success" onClick={handleSave} disabled={saving}>{saving ? '⏳ Salvando...' : '💾 Salvar Metas'}</button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function AdminSeedPage({ showToast }) {
     const [seeding, setSeeding] = useState(false);
     const [done, setDone] = useState([]);
@@ -1677,5 +2474,6 @@ try {
     console.error(err);
 }
 </script>
+
 </body>
 </html>
