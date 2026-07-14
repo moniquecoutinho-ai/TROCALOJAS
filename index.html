@@ -396,6 +396,15 @@
         return snap.exists ? snap.data() : null;
     }
 
+    function ouvirFechamentosLoja(storeId, storeName, callback) {
+        const ref = db.collection("stores").doc(storeId).collection("fechamentos");
+        return ref.onSnapshot(function(snap) {
+            callback(snap.docs.map(function(d) {
+                return { ...d.data(), id: d.id, storeId: storeId, storeName: storeName };
+            }));
+        }, function(err) { console.error("Firebase fechamentos loja erro:", err); callback([]); });
+    }
+
     function ouvirTodosFechamentos(lojas, callback) {
         const unsubscribes = lojas.map(function(loja) {
             const ref = db.collection("stores").doc(loja.id).collection("fechamentos");
@@ -472,7 +481,7 @@
         salvarTroca, atualizarStatus, atualizarTroca, deletarTroca,
         ouvirTrocas, ouvirTodasLojas, salvarEstoque, ouvirEstoque,
         seedInventoryAllStores,
-        salvarFechamento, getFechamento, ouvirTodosFechamentos,
+        salvarFechamento, getFechamento, ouvirTodosFechamentos, ouvirFechamentosLoja,
         salvarMetas, ouvirMetas,
         salvarVenda, deletarVenda, ouvirVendas, ouvirTodasVendas,
         salvarVendedoras, ouvirVendedoras,
@@ -644,6 +653,7 @@ function App() {
     const [metas, setMetas] = useState({});
     const [vendas, setVendas] = useState([]);
     const [vendedoras, setVendedoras] = useState([]);
+    const [fechamentosLoja, setFechamentosLoja] = useState([]);
     const [syncStatus, setSyncStatus] = useState('loading');
     const [loading, setLoading] = useState(false);
     const unsubscribeRef = useRef([]);
@@ -671,7 +681,8 @@ function App() {
             unsubMetas = window.TrocaDB.ouvirMetas((m) => setMetas(m || {}));
             const unsubVendas = window.TrocaDB.ouvirVendas(currentStore.id, (v) => setVendas(v));
             const unsubVendedoras = window.TrocaDB.ouvirVendedoras(currentStore.id, (v) => setVendedoras(v));
-            unsubscribeRef.current = [unsubExchanges, unsubInventory, unsubMetas, unsubVendas, unsubVendedoras];
+            const unsubFechLoja = window.TrocaDB.ouvirFechamentosLoja(currentStore.id, currentStore.name, (f) => setFechamentosLoja(f));
+            unsubscribeRef.current = [unsubExchanges, unsubInventory, unsubMetas, unsubVendas, unsubVendedoras, unsubFechLoja];
         } catch(e) {
             console.error(e);
             setSyncStatus('offline');
@@ -753,7 +764,7 @@ function App() {
                 {currentPage === 'vendas' &&
                     <VendasPage storeId={currentStore.id} storeName={currentStore.name} inventory={inventory} vendas={vendas} vendedoras={vendedoras} onSaveVendedoras={handleSaveVendedoras} showToast={showToast} />}
                 {currentPage === 'fechamento' &&
-                    <FechamentoPage storeId={currentStore.id} storeName={currentStore.name} exchanges={exchanges} metas={metas} vendedoras={vendedoras} showToast={showToast} />}
+                    <FechamentoPage storeId={currentStore.id} storeName={currentStore.name} exchanges={exchanges} metas={metas} vendedoras={vendedoras} fechamentos={fechamentosLoja} showToast={showToast} />}
                 {currentPage === 'inventory' &&
                     <InventoryPage inventory={inventory} onSave={handleSaveInventory} showToast={showToast} />}
                 {currentPage === 'reports' &&
@@ -1920,12 +1931,13 @@ function calcFechTotais(f) {
     return { totalCredito, totalPix, totalNF, totalVendido, totalSaidas, abertura, saldoDinheiro, totalAcessorios, totalDelivery };
 }
 
-function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, showToast }) {
+function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fechamentos, showToast }) {
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
     const [fech, setFech] = useState({ ...EMPTY_FECH });
     const [loadingF, setLoadingF] = useState(true);
     const [saving, setSaving] = useState(false);
     const [showPrint, setShowPrint] = useState(false);
+    const [fechView, setFechView] = useState('dia');
     const [newVend, setNewVend] = useState({ nome:'', valor:'', atendimentos:'' });
     const [newAcc, setNewAcc] = useState({ valorVenda:'', tipoVenda:'PIX', origem:'Delivery', valorItem:'', valorFrete:'', vendedora:'' });
     const [newInt, setNewInt] = useState({ tipo:'Cancelamento', ticket:'', descricao:'' });
@@ -2017,6 +2029,22 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, show
         setTimeout(() => { window.print(); setTimeout(() => setShowPrint(false), 500); }, 300);
     };
 
+    if (fechView === 'historico') {
+        return (
+            <div>
+                <div className="header">
+                    <h1 className="page-title">🧾 Fechamento de Caixa</h1>
+                    <p className="page-subtitle">{storeName}</p>
+                </div>
+                <div className="view-toggle" style={{ maxWidth:'520px' }}>
+                    <button className={`view-toggle-btn ${fechView === 'dia' ? 'active' : ''}`} onClick={() => setFechView('dia')}>🧾 Lançamento do Dia</button>
+                    <button className={`view-toggle-btn ${fechView === 'historico' ? 'active' : ''}`} onClick={() => setFechView('historico')}>📊 Histórico / Dashboard</button>
+                </div>
+                <AdminFechamentosPage storeFechamentos={{ [storeId]: fechamentos || [] }} metas={{}} showToast={showToast} fixedStore={storeId} fixedStoreName={storeName} />
+            </div>
+        );
+    }
+
     return (
         <div>
             {showPrint && <PrintFechamento storeName={storeName} date={date} fech={fech} trocasDoDia={trocasDoDia}
@@ -2026,6 +2054,10 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, show
             <div className="header">
                 <h1 className="page-title">🧾 Fechamento de Caixa</h1>
                 <p className="page-subtitle">Trocas do dia entram automaticamente • salve e imprima em PDF para o grupo</p>
+            </div>
+            <div className="view-toggle" style={{ maxWidth:'520px' }}>
+                <button className={`view-toggle-btn ${fechView === 'dia' ? 'active' : ''}`} onClick={() => setFechView('dia')}>🧾 Lançamento do Dia</button>
+                <button className={`view-toggle-btn ${fechView === 'historico' ? 'active' : ''}`} onClick={() => setFechView('historico')}>📊 Histórico / Dashboard</button>
             </div>
             <div className="card">
                 <div className="form-row">
@@ -2372,14 +2404,14 @@ function PrintFechamento({ storeName, date, fech, trocasDoDia, valorTrocas, valo
     );
 }
 
-function AdminFechamentosPage({ storeFechamentos, metas, showToast }) {
+function AdminFechamentosPage({ storeFechamentos, metas, showToast, fixedStore, fixedStoreName }) {
     const todayStr = new Date().toISOString().split('T')[0];
     const [mode, setMode] = useState('day');
     const [refDate, setRefDate] = useState(todayStr);
     const [refMonth, setRefMonth] = useState(todayStr.slice(0, 7));
     const [customStart, setCustomStart] = useState(todayStr);
     const [customEnd, setCustomEnd] = useState(todayStr);
-    const [storeFilter, setStoreFilter] = useState('all');
+    const [storeFilter, setStoreFilter] = useState(fixedStore || 'all');
     const [showPrint, setShowPrint] = useState(false);
 
     const range = useMemo(() => {
@@ -2477,10 +2509,12 @@ function AdminFechamentosPage({ storeFechamentos, metas, showToast }) {
     return (
         <div>
             {showPrint && <PrintAdminFechamentos filtered={filtered} totals={totals} range={range} ranking={ranking} inters={inters} storeFilter={storeFilter} />}
-            <div className="header">
-                <h1 className="page-title">🧾 Fechamento de Caixa — Consolidado</h1>
-                <p className="page-subtitle">Dia, semana ou mês • geral e por loja • tempo real</p>
-            </div>
+            {!fixedStore && (
+                <div className="header">
+                    <h1 className="page-title">🧾 Fechamento de Caixa — Consolidado</h1>
+                    <p className="page-subtitle">Dia, semana ou mês • geral e por loja • tempo real</p>
+                </div>
+            )}
             <div className="card">
                 <div className="admin-cal-filter-bar">
                     <span style={{ fontSize:'0.85rem', color:'var(--text-secondary)', fontWeight:'600' }}>Período:</span>
@@ -2502,13 +2536,15 @@ function AdminFechamentosPage({ storeFechamentos, metas, showToast }) {
                             <div className="form-group"><label className="form-label">Até</label><input type="date" className="form-input" value={customEnd} onChange={e => setCustomEnd(e.target.value)} /></div>
                         </>
                     )}
-                    <div className="form-group">
-                        <label className="form-label">Loja</label>
-                        <select className="form-select" value={storeFilter} onChange={e => setStoreFilter(e.target.value)}>
-                            <option value="all">🏪 Todas as Lojas</option>
-                            {STORES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                        </select>
-                    </div>
+                    {!fixedStore && (
+                        <div className="form-group">
+                            <label className="form-label">Loja</label>
+                            <select className="form-select" value={storeFilter} onChange={e => setStoreFilter(e.target.value)}>
+                                <option value="all">🏪 Todas as Lojas</option>
+                                {STORES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            </select>
+                        </div>
+                    )}
                 </div>
                 <div className="action-buttons" style={{ marginBottom: 0 }}>
                     <button className="btn btn-success" onClick={handleExportExcel}>📥 Exportar Excel</button>
