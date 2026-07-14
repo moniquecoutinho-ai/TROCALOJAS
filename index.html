@@ -224,9 +224,10 @@
         ::-webkit-scrollbar-thumb:hover { background: var(--primary); }
 
         @media print {
+            html, body { height: auto !important; overflow: visible !important; }
             body * { visibility: hidden; }
             #print-receipt, #print-receipt *, #print-fechamento, #print-fechamento * { visibility: visible; }
-            #print-receipt, #print-fechamento { position: fixed; top: 0; left: 0; width: 100%; background: white; color: black; padding: 0; margin: 0; }
+            #print-receipt, #print-fechamento { position: absolute !important; top: 0 !important; left: 0 !important; width: 100% !important; height: auto !important; min-height: 0 !important; background: white; color: black; padding: 0 !important; margin: 0 !important; display: block !important; }
         }
         .receipt-wrap { font-family: 'Courier New', monospace; background: white; color: #111; padding: 2rem; max-width: 420px; margin: 0 auto; }
         .receipt-logo { text-align: center; font-size: 1.4rem; font-weight: 800; letter-spacing: 1px; margin-bottom: 0.25rem; }
@@ -2237,7 +2238,7 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fech
                 {trocasDoDia.length > 0 ? (
                     <div className="table-container" style={{ marginBottom:'1.5rem' }}>
                         <table className="table">
-                            <thead><tr><th>No Venda</th><th>Cliente</th><th>Vendedor</th><th>Saída</th><th>Entrada</th><th>Diferença</th><th>Status</th></tr></thead>
+                            <thead><tr><th>No Venda</th><th>Cliente</th><th>Vendedor</th><th>Valor de Saída<br/><span style={{ fontWeight:'400', textTransform:'none', fontSize:'0.75rem' }}>(produto entregue)</span></th><th>Valor de Entrada<br/><span style={{ fontWeight:'400', textTransform:'none', fontSize:'0.75rem' }}>(produto que o cliente trouxe)</span></th><th>Valor de Diferença</th><th>Status</th></tr></thead>
                             <tbody>
                                 {trocasDoDia.map(ex => (
                                     <tr key={ex.id}>
@@ -2257,9 +2258,9 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fech
                     <div style={{ color:'var(--text-secondary)', marginBottom:'1.5rem', fontSize:'0.95rem' }}>Nenhuma troca registrada nesta data.</div>
                 )}
                 <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))', gap:'1rem', marginBottom:'1.5rem' }}>
-                    <div className="cal-summary-item"><span className="cal-summary-value" style={{ color:'var(--accent)' }}>{fmt(valorTrocasSaida)}</span><div className="cal-summary-label">📤 Saída (loja → cliente)</div></div>
-                    <div className="cal-summary-item"><span className="cal-summary-value" style={{ color:'var(--secondary-light)' }}>{fmt(valorTrocasEntrada)}</span><div className="cal-summary-label">📥 Entrada (cliente → loja)</div></div>
-                    <div className="cal-summary-item" style={{ border:'1px solid var(--primary)' }}><span className="cal-summary-value" style={{ color:'var(--primary)' }}>{fmt(valorTrocas)}</span><div className="cal-summary-label">💰 Diferença (valor das trocas)</div></div>
+                    <div className="cal-summary-item"><span className="cal-summary-value" style={{ color:'var(--secondary-light)' }}>{fmt(valorTrocasEntrada)}</span><div className="cal-summary-label">📥 Valor de Entrada — produto que o cliente trouxe</div></div>
+                    <div className="cal-summary-item"><span className="cal-summary-value" style={{ color:'var(--accent)' }}>{fmt(valorTrocasSaida)}</span><div className="cal-summary-label">📤 Valor de Saída — produto entregue ao cliente</div></div>
+                    <div className="cal-summary-item" style={{ border:'1px solid var(--primary)' }}><span className="cal-summary-value" style={{ color:'var(--primary)' }}>{fmt(valorTrocas)}</span><div className="cal-summary-label">💰 Valor de Diferença (saída − entrada)</div></div>
                 </div>
                 <div className="form-row">
                     <FieldMoney label="Valor da Sangria" value={fech.sangria} onChange={v => setF('sangria', v)} />
@@ -2370,11 +2371,11 @@ function PrintFechamento({ storeName, date, fech, trocasDoDia, valorTrocas, valo
                 <hr className="receipt-divider" />
                 <div className="receipt-section-title">TROCAS DO DIA ({trocasDoDia.length})</div>
                 {trocasDoDia.map(ex => (
-                    <div key={ex.id} className="receipt-item"><span>#{ex.saleNumber} — {ex.customerName}{ex.salesPerson ? ' (' + ex.salesPerson + ')' : ''} (saida {fmt(ex.outTotal || 0)} / entrada {fmt(ex.inTotal || 0)})</span><strong>{fmt(ex.difference)}</strong></div>
+                    <div key={ex.id} className="receipt-item"><span>#{ex.saleNumber} — {ex.customerName}{ex.salesPerson ? ' (' + ex.salesPerson + ')' : ''} (cliente trouxe {fmt(ex.inTotal || 0)} / entregue {fmt(ex.outTotal || 0)})</span><strong>{fmt(ex.difference)}</strong></div>
                 ))}
-                <div className="receipt-item"><span>Total Saída (loja → cliente)</span><strong>{fmt(valorTrocasSaida)}</strong></div>
-                <div className="receipt-item"><span>Total Entrada (cliente → loja)</span><strong>{fmt(valorTrocasEntrada)}</strong></div>
-                <div className="receipt-total"><span>DIFERENÇA (VALOR DAS TROCAS)</span><span>{fmt(valorTrocas)}</span></div>
+                <div className="receipt-item"><span>Valor de Entrada (produto que o cliente trouxe)</span><strong>{fmt(valorTrocasEntrada)}</strong></div>
+                <div className="receipt-item"><span>Valor de Saída (produto entregue ao cliente)</span><strong>{fmt(valorTrocasSaida)}</strong></div>
+                <div className="receipt-total"><span>VALOR DE DIFERENÇA</span><span>{fmt(valorTrocas)}</span></div>
                 <hr className="receipt-divider" />
                 <div className="receipt-section-title">SANGRIA E USO DE CAIXA</div>
                 <div className="receipt-item"><span>Abertura (fundo de troco)</span><strong>{fmt(num(fech.abertura))}</strong></div>
