@@ -2532,6 +2532,39 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
         XLSX.writeFile(wb, 'fechamentos-' + range[0] + '-a-' + range[1] + '.xlsx');
     };
 
+    const handleExportDelivery = () => {
+        const soDelivery = deliveriesPeriodo.filter(a => a.origem === 'Delivery');
+        if (!soDelivery.length) { alert('Nao ha lancamentos de Delivery no periodo'); return; }
+        const wb = XLSX.utils.book_new();
+        // Aba 1: resumo por loja
+        const porLojaMap = {};
+        soDelivery.forEach(a => {
+            const k = a.storeName || fixedStoreName || '-';
+            if (!porLojaMap[k]) porLojaMap[k] = { qtd: 0, itens: 0, fretes: 0, total: 0 };
+            porLojaMap[k].qtd += 1;
+            porLojaMap[k].itens += num(a.valorItem);
+            porLojaMap[k].fretes += num(a.valorFrete);
+            porLojaMap[k].total += num(a.totalPago);
+        });
+        const resumo = Object.entries(porLojaMap).sort((a, b) => b[1].total - a[1].total).map(([loja, d]) => ({
+            'Loja': loja, 'Qtd Deliveries': d.qtd, 'Total Itens (R$)': d.itens, 'Total Fretes (R$)': d.fretes, 'Total Delivery (R$)': d.total,
+            'Ticket Medio (R$)': d.qtd > 0 ? d.total / d.qtd : 0
+        }));
+        resumo.push({ 'Loja': 'TOTAL GERAL', 'Qtd Deliveries': soDelivery.length,
+            'Total Itens (R$)': soDelivery.reduce((s, a) => s + num(a.valorItem), 0),
+            'Total Fretes (R$)': soDelivery.reduce((s, a) => s + num(a.valorFrete), 0),
+            'Total Delivery (R$)': soDelivery.reduce((s, a) => s + num(a.totalPago), 0),
+            'Ticket Medio (R$)': soDelivery.length > 0 ? soDelivery.reduce((s, a) => s + num(a.totalPago), 0) / soDelivery.length : 0 });
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumo), 'Delivery por Loja');
+        // Aba 2: detalhado com responsavel
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(soDelivery.map(a => ({
+            'Data': a.date, 'Loja': a.storeName || fixedStoreName || '', 'Vendedora Responsavel': a.vendedora || '',
+            'Tipo de Venda': a.tipoVenda || '', 'Venda (PDV)': num(a.valorVenda),
+            'Item (R$)': num(a.valorItem), 'Frete (R$)': num(a.valorFrete), 'Total Pago (R$)': num(a.totalPago)
+        }))), 'Delivery Detalhado');
+        XLSX.writeFile(wb, 'delivery-' + range[0] + '-a-' + range[1] + '.xlsx');
+    };
+
     const handlePrint = () => {
         if (!filtered.length) { alert('Nao ha fechamentos no periodo'); return; }
         setShowPrint(true);
@@ -2582,6 +2615,7 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
                 </div>
                 <div className="action-buttons" style={{ marginBottom: 0 }}>
                     <button className="btn btn-success" onClick={handleExportExcel}>📥 Exportar Excel</button>
+                    <button className="btn btn-warning" onClick={handleExportDelivery}>🛵 Exportar Delivery</button>
                     <button className="btn btn-secondary" onClick={handlePrint}>🖨️ Imprimir / PDF</button>
                 </div>
             </div>
@@ -2798,6 +2832,39 @@ function FechDashboard({ filtered, totals }) {
                     </div>
                 </div>
             )}
+            {(() => {
+                const delivLoja = {};
+                filtered.forEach(f => {
+                    const d = calcFechTotais(f).totalDelivery;
+                    if (d <= 0) return;
+                    const k = f.storeName || '-';
+                    delivLoja[k] = (delivLoja[k] || 0) + d;
+                });
+                const lista = Object.entries(delivLoja).map(([nome, valor]) => ({ nome, valor })).sort((a, b) => b.valor - a.valor);
+                const totalDeliv = lista.reduce((s, l) => s + l.valor, 0);
+                if (totalDeliv <= 0) return null;
+                const maxD = Math.max(...lista.map(l => l.valor), 1);
+                return (
+                    <div className="card">
+                        <h2 className="card-title">🛵 Delivery por Loja</h2>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:'0.5rem', marginBottom:'1.25rem' }}>
+                            <span style={{ color:'var(--text-secondary)', fontSize:'0.9rem' }}>Total de Delivery no período</span>
+                            <span style={{ fontFamily:'Syne, sans-serif', fontWeight:'800', fontSize:'1.4rem', color:'var(--warning)' }}>{fmt(totalDeliv)} <span style={{ fontSize:'0.85rem', color:'var(--text-secondary)', fontWeight:'500' }}>({totals.vendido > 0 ? ((totalDeliv / totals.vendido) * 100).toFixed(1) : 0}% do vendido)</span></span>
+                        </div>
+                        {lista.map(l => (
+                            <div key={l.nome} style={{ marginBottom:'1rem' }}>
+                                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:'0.35rem', fontSize:'0.95rem' }}>
+                                    <span style={{ fontWeight:'600' }}>{l.nome}</span>
+                                    <span style={{ fontWeight:'700' }}>{fmt(l.valor)} <span style={{ color:'var(--text-secondary)', fontWeight:'500' }}>({((l.valor / totalDeliv) * 100).toFixed(1)}%)</span></span>
+                                </div>
+                                <div style={{ background:'var(--bg-dark)', borderRadius:'8px', height:'22px', overflow:'hidden' }}>
+                                    <div style={{ width: ((l.valor / maxD) * 100) + '%', height:'100%', background:'linear-gradient(90deg, var(--warning), var(--accent))', borderRadius:'8px', transition:'width 0.5s ease' }}></div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                );
+            })()}
             {porLoja.length > 1 && (
                 <div className="card">
                     <h2 className="card-title">🏪 Vendido por Loja</h2>
