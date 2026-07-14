@@ -465,6 +465,35 @@
         }, function() { callback([]); });
     }
 
+    // ===== FRETES AVULSOS (lancados pelo Admin por loja) =====
+    async function salvarFrete(storeId, frete) {
+        const ref = db.collection("stores").doc(storeId).collection("fretes");
+        const docRef = await ref.add({ ...frete, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+        return docRef.id;
+    }
+
+    async function atualizarFrete(storeId, freteId, dados) {
+        await db.collection("stores").doc(storeId).collection("fretes").doc(freteId)
+            .update({ ...dados, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    }
+
+    async function deletarFrete(storeId, freteId) {
+        await db.collection("stores").doc(storeId).collection("fretes").doc(freteId).delete();
+    }
+
+    function ouvirTodosFretes(lojas, callback) {
+        const unsubscribes = lojas.map(function(loja) {
+            const ref = db.collection("stores").doc(loja.id).collection("fretes").orderBy("createdAt", "desc");
+            return ref.onSnapshot(function(snap) {
+                const fretes = snap.docs.map(function(d) {
+                    return { ...d.data(), id: d.id, storeId: loja.id, storeName: loja.name };
+                });
+                callback(loja.id, fretes);
+            }, function(err) { console.error("Firebase fretes erro " + loja.id + ":", err); });
+        });
+        return function() { unsubscribes.forEach(function(u) { u && u(); }); };
+    }
+
     // ===== METAS (lançadas pelo Admin) =====
     async function salvarMetas(metas) {
         const ref = db.collection("config").doc("metas");
@@ -486,6 +515,7 @@
         salvarMetas, ouvirMetas,
         salvarVenda, deletarVenda, ouvirVendas, ouvirTodasVendas,
         salvarVendedoras, ouvirVendedoras,
+        salvarFrete, atualizarFrete, deletarFrete, ouvirTodosFretes,
         garantirCatalogo
     };
 
@@ -779,6 +809,7 @@ function AdminView({ onLogout, showToast }) {
     const [storeExchanges, setStoreExchanges] = useState({});
     const [storeFechamentos, setStoreFechamentos] = useState({});
     const [storeVendas, setStoreVendas] = useState({});
+    const [storeFretes, setStoreFretes] = useState({});
     const [metas, setMetas] = useState({});
     const [selectedStore, setSelectedStore] = useState('all');
     const [selectedExchange, setSelectedExchange] = useState(null);
@@ -807,6 +838,9 @@ function AdminView({ onLogout, showToast }) {
             }));
             unsubs.push(window.TrocaDB.ouvirTodasVendas(STORES, (storeId, vendas) => {
                 setStoreVendas(prev => ({ ...prev, [storeId]: vendas }));
+            }));
+            unsubs.push(window.TrocaDB.ouvirTodosFretes(STORES, (storeId, fretes) => {
+                setStoreFretes(prev => ({ ...prev, [storeId]: fretes }));
             }));
             unsubs.push(window.TrocaDB.ouvirMetas((m) => setMetas(m || {})));
         } catch(e) { console.error(e); setLoading(false); }
@@ -874,6 +908,11 @@ function AdminView({ onLogout, showToast }) {
                             </div>
                         </li>
                         <li className="nav-item">
+                            <div className={`nav-link ${adminPage === 'fretes' ? 'active' : ''}`} onClick={() => setAdminPage('fretes')}>
+                                <span className="nav-icon">🚚</span>Fretes
+                            </div>
+                        </li>
+                        <li className="nav-item">
                             <div className={`nav-link ${adminPage === 'calendar' ? 'active' : ''}`} onClick={() => setAdminPage('calendar')}>
                                 <span className="nav-icon">🗓️</span>Calendario Global
                             </div>
@@ -899,6 +938,9 @@ function AdminView({ onLogout, showToast }) {
                 )}
                 {adminPage === 'vendedoras' && (
                     <AdminVendedorasPage showToast={showToast} />
+                )}
+                {adminPage === 'fretes' && (
+                    <AdminFretesPage storeFretes={storeFretes} showToast={showToast} />
                 )}
                 {adminPage === 'calendar' && (
                     <div>
@@ -2947,6 +2989,174 @@ function PrintAdminFechamentos({ filtered, totals, range, ranking, inters, store
                     </>
                 )}
                 <div className="receipt-footer">Gerado em {new Date().toLocaleString('pt-BR')} - TrocaFacil</div>
+            </div>
+        </div>
+    );
+}
+
+function AdminFretesPage({ storeFretes, showToast }) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const [form, setForm] = useState({ storeId: STORES[0].id, date: todayStr, veiculo: '', finalidade: '', vendedora: '', valor: '', obs: '' });
+    const [editing, setEditing] = useState(null); // { storeId, id }
+    const [saving, setSaving] = useState(false);
+    const [refMonth, setRefMonth] = useState(todayStr.slice(0, 7));
+    const [lojaFiltro, setLojaFiltro] = useState('all');
+
+    const setF = (k, v) => setForm(p => ({ ...p, [k]: v }));
+
+    const handleSave = async () => {
+        if (!form.finalidade || !num(form.valor)) { showToast('Informe para que foi o frete e o valor', 'error'); return; }
+        setSaving(true);
+        try {
+            const dados = { date: form.date, veiculo: form.veiculo, finalidade: form.finalidade, vendedora: form.vendedora.toUpperCase(), valor: num(form.valor), obs: form.obs };
+            if (editing) {
+                await window.TrocaDB.atualizarFrete(editing.storeId, editing.id, dados);
+                showToast('Frete atualizado ✅');
+            } else {
+                await window.TrocaDB.salvarFrete(form.storeId, dados);
+                showToast('Frete lançado! 🚚');
+            }
+            setForm({ storeId: form.storeId, date: form.date, veiculo: '', finalidade: '', vendedora: '', valor: '', obs: '' });
+            setEditing(null);
+        } catch(e) { console.error(e); showToast('Erro ao salvar frete', 'error'); }
+        finally { setSaving(false); }
+    };
+
+    const handleEdit = (f) => {
+        setEditing({ storeId: f.storeId, id: f.id });
+        setForm({ storeId: f.storeId, date: f.date, veiculo: f.veiculo || '', finalidade: f.finalidade || f.descricao || '', vendedora: f.vendedora || '', valor: String(f.valor || ''), obs: f.obs || '' });
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const handleDelete = async (f) => {
+        if (!confirm('Excluir este frete de ' + f.storeName + '?')) return;
+        try { await window.TrocaDB.deletarFrete(f.storeId, f.id); showToast('Frete excluído'); }
+        catch { showToast('Erro ao excluir', 'error'); }
+    };
+
+    const filtrados = useMemo(() => {
+        return Object.values(storeFretes).flat()
+            .filter(f => f.date && f.date.slice(0, 7) === refMonth && (lojaFiltro === 'all' || f.storeId === lojaFiltro))
+            .sort((a, b) => (b.date > a.date ? 1 : -1));
+    }, [storeFretes, refMonth, lojaFiltro]);
+
+    const totalMes = filtrados.reduce((s, f) => s + num(f.valor), 0);
+    const porLoja = useMemo(() => {
+        const map = {};
+        filtrados.forEach(f => {
+            if (!map[f.storeName]) map[f.storeName] = { valor: 0, qtd: 0 };
+            map[f.storeName].valor += num(f.valor);
+            map[f.storeName].qtd += 1;
+        });
+        return Object.entries(map).map(([nome, d]) => ({ nome, ...d })).sort((a, b) => b.valor - a.valor);
+    }, [filtrados]);
+    const maxLoja = Math.max(...porLoja.map(l => l.valor), 1);
+
+    const handleExport = () => {
+        if (!filtrados.length) { alert('Nao ha fretes no periodo'); return; }
+        const wb = XLSX.utils.book_new();
+        const resumo = porLoja.map(l => ({ 'Loja': l.nome, 'Qtd Fretes': l.qtd, 'Total (R$)': l.valor }));
+        resumo.push({ 'Loja': 'TOTAL GERAL', 'Qtd Fretes': filtrados.length, 'Total (R$)': totalMes });
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumo), 'Fretes por Loja');
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filtrados.map(f => ({
+            'Data': f.date, 'Loja': f.storeName, 'Carro/Veiculo': f.veiculo || '',
+            'Para que foi': f.finalidade || f.descricao || '',
+            'Vendedora': f.vendedora || '', 'Valor (R$)': num(f.valor), 'Observacao': f.obs || ''
+        }))), 'Fretes Detalhado');
+        XLSX.writeFile(wb, 'fretes-' + refMonth + '.xlsx');
+    };
+
+    return (
+        <div>
+            <div className="header">
+                <h1 className="page-title">🚚 Fretes por Loja</h1>
+                <p className="page-subtitle">Lançamento manual de fretes avulsos</p>
+            </div>
+            <div className="card">
+                <h2 className="card-title">{editing ? '✏️ Editando Frete' : '➕ Lançar Frete'}</h2>
+                <div className="form-row">
+                    <div className="form-group">
+                        <label className="form-label">Loja *</label>
+                        <select className="form-select" value={form.storeId} onChange={e => setF('storeId', e.target.value)} disabled={!!editing}>
+                            {STORES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                    </div>
+                    <div className="form-group"><label className="form-label">Data *</label><input type="date" className="form-input" value={form.date} onChange={e => setF('date', e.target.value)} /></div>
+                    <div className="form-group"><label className="form-label">Qual Carro / Veículo</label><input className="form-input" value={form.veiculo} onChange={e => setF('veiculo', e.target.value)} placeholder="Ex: Fiorino branca • Moto do João • Uber Flash" /></div>
+                </div>
+                <div className="form-row">
+                    <div className="form-group"><label className="form-label">Para que foi o Frete? *</label><input className="form-input" value={form.finalidade} onChange={e => setF('finalidade', e.target.value)} placeholder="Ex: Entrega de pedido delivery em Moema • Transferência de estoque p/ Santana" /></div>
+                    <div className="form-group"><label className="form-label">Vendedora (opcional)</label><input className="form-input" value={form.vendedora} onChange={e => setF('vendedora', e.target.value)} placeholder="Nome" /></div>
+                    <div className="form-group">
+                        <label className="form-label">Valor do Frete (R$) *</label>
+                        <input type="text" inputMode="decimal" className="form-input" value={form.valor} onChange={e => setF('valor', e.target.value)} placeholder="0,00" />
+                        {num(form.valor) > 0 && <div style={{ fontSize:'0.8rem', color:'var(--text-muted)', marginTop:'0.25rem' }}>= {fmt(num(form.valor))}</div>}
+                    </div>
+                    <div className="form-group"><label className="form-label">Observação</label><input className="form-input" value={form.obs} onChange={e => setF('obs', e.target.value)} placeholder="Ex: ticket 17081" /></div>
+                </div>
+                <div style={{ display:'flex', gap:'1rem' }}>
+                    {editing && <button className="btn btn-outline" onClick={() => { setEditing(null); setForm({ storeId: STORES[0].id, date: todayStr, veiculo: '', finalidade: '', vendedora: '', valor: '', obs: '' }); }}>Cancelar Edição</button>}
+                    <button className="btn btn-success" style={{ flex:1 }} onClick={handleSave} disabled={saving}>{saving ? '⏳ Salvando...' : editing ? '💾 Salvar Alterações' : '🚚 Lançar Frete'}</button>
+                </div>
+            </div>
+            <div className="card">
+                <div className="form-row">
+                    <div className="form-group"><label className="form-label">Mês</label><input type="month" className="form-input" value={refMonth} onChange={e => setRefMonth(e.target.value)} /></div>
+                    <div className="form-group">
+                        <label className="form-label">Loja</label>
+                        <select className="form-select" value={lojaFiltro} onChange={e => setLojaFiltro(e.target.value)}>
+                            <option value="all">🏪 Todas as Lojas</option>
+                            {STORES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                    </div>
+                    <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}><button className="btn btn-warning" onClick={handleExport} style={{ width:'100%' }}>📥 Exportar Fretes</button></div>
+                </div>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:'0.5rem', marginBottom:'1.25rem' }}>
+                    <span style={{ color:'var(--text-secondary)' }}>{filtrados.length} frete(s) no mês</span>
+                    <span style={{ fontFamily:'Syne, sans-serif', fontWeight:'800', fontSize:'1.4rem', color:'var(--warning)' }}>{fmt(totalMes)}</span>
+                </div>
+                {porLoja.length > 0 && porLoja.map(l => (
+                    <div key={l.nome} style={{ marginBottom:'1rem' }}>
+                        <div style={{ display:'flex', justifyContent:'space-between', marginBottom:'0.35rem', fontSize:'0.95rem' }}>
+                            <span style={{ fontWeight:'600' }}>{l.nome} <span style={{ color:'var(--text-secondary)', fontWeight:'400' }}>({l.qtd})</span></span>
+                            <span style={{ fontWeight:'700' }}>{fmt(l.valor)}</span>
+                        </div>
+                        <div style={{ background:'var(--bg-dark)', borderRadius:'8px', height:'20px', overflow:'hidden' }}>
+                            <div style={{ width: ((l.valor / maxLoja) * 100) + '%', height:'100%', background:'linear-gradient(90deg, var(--warning), var(--accent))', borderRadius:'8px' }}></div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+            <div className="card">
+                <h2 className="card-title">📋 Fretes Lançados</h2>
+                {filtrados.length > 0 ? (
+                    <div className="table-container">
+                        <table className="table">
+                            <thead><tr><th>Data</th><th>Loja</th><th>Carro / Veículo</th><th>Para que foi</th><th>Vendedora</th><th>Valor</th><th>Obs</th><th>Ações</th></tr></thead>
+                            <tbody>
+                                {filtrados.map(f => (
+                                    <tr key={f.storeId + '-' + f.id}>
+                                        <td>{parseDateKey(f.date) ? parseDateKey(f.date).toLocaleDateString('pt-BR') : f.date}</td>
+                                        <td style={{ fontSize:'0.85rem' }}>{f.storeName}</td>
+                                        <td style={{ fontWeight:'600' }}>{f.veiculo || '-'}</td>
+                                        <td>{f.finalidade || f.descricao || '-'}</td>
+                                        <td>{f.vendedora || '-'}</td>
+                                        <td style={{ fontWeight:'700', color:'var(--warning)' }}>{fmt(num(f.valor))}</td>
+                                        <td style={{ fontSize:'0.85rem', color:'var(--text-secondary)' }}>{f.obs || '-'}</td>
+                                        <td>
+                                            <div style={{ display:'flex', gap:'0.5rem' }}>
+                                                <button className="btn btn-primary btn-small" onClick={() => handleEdit(f)}>✏️</button>
+                                                <button className="btn btn-danger btn-small" onClick={() => handleDelete(f)}>🗑️</button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <div className="empty-state"><div className="empty-state-icon">🚚</div><p>Nenhum frete lançado neste mês</p></div>
+                )}
             </div>
         </div>
     );
