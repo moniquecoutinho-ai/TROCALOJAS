@@ -892,7 +892,7 @@ function AdminView({ onLogout, showToast }) {
                     <AdminVendasPage storeVendas={storeVendas} showToast={showToast} />
                 )}
                 {adminPage === 'fechamentos' && (
-                    <AdminFechamentosPage storeFechamentos={storeFechamentos} metas={metas} showToast={showToast} />
+                    <AdminFechamentosPage storeFechamentos={storeFechamentos} storeExchanges={storeExchanges} metas={metas} showToast={showToast} />
                 )}
                 {adminPage === 'metas' && (
                     <AdminMetasPage metas={metas} showToast={showToast} />
@@ -1006,16 +1006,22 @@ function AdminView({ onLogout, showToast }) {
 
 function FinanceiroView({ onLogout, showToast }) {
     const [storeFechamentos, setStoreFechamentos] = useState({});
+    const [storeExchanges, setStoreExchanges] = useState({});
     const [loading, setLoading] = useState(true);
     const unsubRef = useRef(null);
 
     useEffect(() => {
+        const unsubs = [];
         try {
-            unsubRef.current = window.TrocaDB.ouvirTodosFechamentos(STORES, (storeId, fechs) => {
+            unsubs.push(window.TrocaDB.ouvirTodosFechamentos(STORES, (storeId, fechs) => {
                 setStoreFechamentos(prev => ({ ...prev, [storeId]: fechs }));
                 setLoading(false);
-            });
+            }));
+            unsubs.push(window.TrocaDB.ouvirTodasLojas(STORES, (storeId, trocas) => {
+                setStoreExchanges(prev => ({ ...prev, [storeId]: trocas }));
+            }));
         } catch(e) { console.error(e); setLoading(false); }
+        unsubRef.current = () => unsubs.forEach(u => u && u());
         return () => unsubRef.current && unsubRef.current();
     }, []);
 
@@ -1045,7 +1051,7 @@ function FinanceiroView({ onLogout, showToast }) {
                 <button className="logout-btn" onClick={onLogout}>🚪 Sair</button>
             </aside>
             <main className="main-content">
-                <AdminFechamentosPage storeFechamentos={storeFechamentos} metas={{}} showToast={showToast} />
+                <AdminFechamentosPage storeFechamentos={storeFechamentos} storeExchanges={storeExchanges} metas={{}} showToast={showToast} />
             </main>
         </div>
     );
@@ -2041,7 +2047,7 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fech
                     <button className={`view-toggle-btn ${fechView === 'dia' ? 'active' : ''}`} onClick={() => setFechView('dia')}>🧾 Lançamento do Dia</button>
                     <button className={`view-toggle-btn ${fechView === 'historico' ? 'active' : ''}`} onClick={() => setFechView('historico')}>📊 Histórico / Dashboard</button>
                 </div>
-                <AdminFechamentosPage storeFechamentos={{ [storeId]: fechamentos || [] }} metas={{}} showToast={showToast} fixedStore={storeId} fixedStoreName={storeName} />
+                <AdminFechamentosPage storeFechamentos={{ [storeId]: fechamentos || [] }} storeExchanges={{ [storeId]: exchanges || [] }} metas={{}} showToast={showToast} fixedStore={storeId} fixedStoreName={storeName} />
             </div>
         );
     }
@@ -2405,7 +2411,7 @@ function PrintFechamento({ storeName, date, fech, trocasDoDia, valorTrocas, valo
     );
 }
 
-function AdminFechamentosPage({ storeFechamentos, metas, showToast, fixedStore, fixedStoreName }) {
+function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToast, fixedStore, fixedStoreName }) {
     const todayStr = new Date().toISOString().split('T')[0];
     const [mode, setMode] = useState('day');
     const [refDate, setRefDate] = useState(todayStr);
@@ -2464,6 +2470,18 @@ function AdminFechamentosPage({ storeFechamentos, metas, showToast, fixedStore, 
         return filtered.flatMap(f => (f.intercorrencias || []).map(i => ({ ...i, date: f.date, storeName: f.storeName })));
     }, [filtered]);
 
+    // Trocas do periodo com o vendedor responsavel (de quem e a troca)
+    const trocasPeriodo = useMemo(() => {
+        return Object.values(storeExchanges || {}).flat()
+            .filter(ex => ex.date && ex.date >= range[0] && ex.date <= range[1] && (storeFilter === 'all' || ex.storeId === storeFilter || !ex.storeId))
+            .sort((a, b) => (b.date > a.date ? 1 : -1));
+    }, [storeExchanges, range, storeFilter]);
+
+    // Delivery/acessorios do periodo com a vendedora responsavel (de quem e o delivery)
+    const deliveriesPeriodo = useMemo(() => {
+        return filtered.flatMap(f => (f.acessorios || []).map(a => ({ ...a, date: f.date, storeName: f.storeName })));
+    }, [filtered]);
+
     const handleExportExcel = () => {
         if (!filtered.length) { alert('Nao ha fechamentos no periodo'); return; }
         const wb = XLSX.utils.book_new();
@@ -2496,6 +2514,21 @@ function AdminFechamentosPage({ storeFechamentos, metas, showToast, fixedStore, 
                 'Data': i.date, 'Loja': i.storeName, 'Tipo': i.tipo, 'Ticket': i.ticket || '', 'Descricao': i.descricao || ''
             }))), 'Intercorrencias');
         }
+        if (trocasPeriodo.length) {
+            XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(trocasPeriodo.map(ex => ({
+                'Data': ex.date, 'Loja': ex.storeName || fixedStoreName || '', 'No Venda': ex.saleNumber,
+                'Cliente': ex.customerName, 'Vendedor(a) Responsavel': ex.salesPerson || '',
+                'Entrada (cliente trouxe)': num(ex.inTotal), 'Saida (entregue)': num(ex.outTotal), 'Diferenca': num(ex.difference),
+                'Status': ex.status === 'pending' ? 'Pendente' : 'Confirmada'
+            }))), 'Trocas');
+        }
+        if (deliveriesPeriodo.length) {
+            XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(deliveriesPeriodo.map(a => ({
+                'Data': a.date, 'Loja': a.storeName || fixedStoreName || '', 'Origem': a.origem || '',
+                'Vendedora Responsavel': a.vendedora || '', 'Tipo de Venda': a.tipoVenda || '',
+                'Venda (PDV)': num(a.valorVenda), 'Item': num(a.valorItem), 'Frete': num(a.valorFrete), 'Total Pago': num(a.totalPago)
+            }))), 'Delivery-Acessorios');
+        }
         XLSX.writeFile(wb, 'fechamentos-' + range[0] + '-a-' + range[1] + '.xlsx');
     };
 
@@ -2509,7 +2542,7 @@ function AdminFechamentosPage({ storeFechamentos, metas, showToast, fixedStore, 
 
     return (
         <div>
-            {showPrint && <PrintAdminFechamentos filtered={filtered} totals={totals} range={range} ranking={ranking} inters={inters} storeFilter={storeFilter} />}
+            {showPrint && <PrintAdminFechamentos filtered={filtered} totals={totals} range={range} ranking={ranking} inters={inters} storeFilter={storeFilter} trocasPeriodo={trocasPeriodo} deliveriesPeriodo={deliveriesPeriodo} fixedStoreName={fixedStoreName} />}
             {!fixedStore && (
                 <div className="header">
                     <h1 className="page-title">🧾 Fechamento de Caixa — Consolidado</h1>
@@ -2604,6 +2637,55 @@ function AdminFechamentosPage({ storeFechamentos, metas, showToast, fixedStore, 
                                         <td><span className="badge badge-danger">{it.tipo}</span></td>
                                         <td style={{ fontWeight:'700' }}>{it.ticket || '-'}</td>
                                         <td style={{ fontSize:'0.9rem' }}>{it.descricao || '-'}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+            {trocasPeriodo.length > 0 && (
+                <div className="card">
+                    <h2 className="card-title">🔄 Trocas no Período — quem fez cada troca</h2>
+                    <div className="table-container">
+                        <table className="table">
+                            <thead><tr><th>Data</th><th>Loja</th><th>No Venda</th><th>Cliente</th><th>Vendedor(a)</th><th>Entrada<br/><span style={{ fontWeight:'400', textTransform:'none', fontSize:'0.72rem' }}>(cliente trouxe)</span></th><th>Saída<br/><span style={{ fontWeight:'400', textTransform:'none', fontSize:'0.72rem' }}>(entregue)</span></th><th>Diferença</th><th>Status</th></tr></thead>
+                            <tbody>
+                                {trocasPeriodo.map(ex => (
+                                    <tr key={(ex.storeId || 'l') + '-' + ex.id}>
+                                        <td>{parseDateKey(ex.date) ? parseDateKey(ex.date).toLocaleDateString('pt-BR') : ex.date}</td>
+                                        <td style={{ fontSize:'0.85rem' }}>{ex.storeName || fixedStoreName || '-'}</td>
+                                        <td style={{ fontWeight:'700' }}>{ex.saleNumber}</td>
+                                        <td>{ex.customerName}</td>
+                                        <td style={{ fontWeight:'700', color:'var(--accent)' }}>{ex.salesPerson || '⚠️ sem vendedor'}</td>
+                                        <td>{fmt(num(ex.inTotal))}</td>
+                                        <td>{fmt(num(ex.outTotal))}</td>
+                                        <td style={{ fontWeight:'700', color: num(ex.difference) >= 0 ? 'var(--success)' : 'var(--danger)' }}>{fmt(num(ex.difference))}</td>
+                                        <td><span className={`badge badge-${ex.status}`}>{ex.status === 'pending' ? '⏳' : '✅'}</span></td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+            {deliveriesPeriodo.length > 0 && (
+                <div className="card">
+                    <h2 className="card-title">🛵 Delivery / Acessórios no Período — quem fez cada venda</h2>
+                    <div className="table-container">
+                        <table className="table">
+                            <thead><tr><th>Data</th><th>Loja</th><th>Origem</th><th>Vendedora</th><th>Tipo</th><th>Item</th><th>Frete</th><th>Total Pago</th></tr></thead>
+                            <tbody>
+                                {deliveriesPeriodo.map((a, idx) => (
+                                    <tr key={idx}>
+                                        <td>{parseDateKey(a.date) ? parseDateKey(a.date).toLocaleDateString('pt-BR') : a.date}</td>
+                                        <td style={{ fontSize:'0.85rem' }}>{a.storeName || fixedStoreName || '-'}</td>
+                                        <td><span className={a.origem === 'Delivery' ? 'badge badge-pending' : 'badge badge-confirmed'} style={{ padding:'0.25rem 0.6rem', fontSize:'0.78rem' }}>{a.origem === 'Delivery' ? '🛵 Delivery' : '🏪 Loja'}</span></td>
+                                        <td style={{ fontWeight:'700', color:'var(--accent)' }}>{a.vendedora || '⚠️ sem vendedora'}</td>
+                                        <td>{a.tipoVenda || '-'}</td>
+                                        <td>{fmt(num(a.valorItem))}</td>
+                                        <td>{fmt(num(a.valorFrete))}</td>
+                                        <td style={{ fontWeight:'700', color:'var(--success)' }}>{fmt(num(a.totalPago))}</td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -2739,7 +2821,7 @@ function FechDashboard({ filtered, totals }) {
     );
 }
 
-function PrintAdminFechamentos({ filtered, totals, range, ranking, inters, storeFilter }) {
+function PrintAdminFechamentos({ filtered, totals, range, ranking, inters, storeFilter, trocasPeriodo, deliveriesPeriodo, fixedStoreName }) {
     const lojaLabel = storeFilter === 'all' ? 'Todas as Lojas' : (STORES.find(s => s.id === storeFilter) || {}).name || storeFilter;
     return (
         <div id="print-fechamento" style={{ position:'fixed', top:0, left:0, width:'100%', zIndex:99999, background:'white', minHeight:'100vh', padding:'1.5rem' }}>
@@ -2765,6 +2847,24 @@ function PrintAdminFechamentos({ filtered, totals, range, ranking, inters, store
                     const c = calcFechTotais(f);
                     return <div key={f.storeId + '-' + f.id} className="receipt-item"><span>{f.date} — {f.storeName}</span><strong>{fmt(c.totalVendido)}</strong></div>;
                 })}
+                {(trocasPeriodo || []).length > 0 && (
+                    <>
+                        <hr className="receipt-divider" />
+                        <div className="receipt-section-title">TROCAS — RESPONSAVEL POR CADA UMA</div>
+                        {trocasPeriodo.map(ex => (
+                            <div key={(ex.storeId || 'l') + '-' + ex.id} className="receipt-item"><span>{ex.date} • {ex.storeName || fixedStoreName || ''} • #{ex.saleNumber} • Vend: {ex.salesPerson || 'SEM VENDEDOR'} • {ex.customerName}</span><strong>{fmt(num(ex.difference))}</strong></div>
+                        ))}
+                    </>
+                )}
+                {(deliveriesPeriodo || []).length > 0 && (
+                    <>
+                        <hr className="receipt-divider" />
+                        <div className="receipt-section-title">DELIVERY / ACESSORIOS — RESPONSAVEL POR CADA UM</div>
+                        {deliveriesPeriodo.map((a, idx) => (
+                            <div key={idx} className="receipt-item"><span>{a.date} • {a.storeName || fixedStoreName || ''} • {a.origem === 'Delivery' ? 'DELIVERY' : 'LOJA'} • Vend: {a.vendedora || 'SEM VENDEDORA'} • {a.tipoVenda}</span><strong>{fmt(num(a.totalPago))}</strong></div>
+                        ))}
+                    </>
+                )}
                 {ranking.length > 0 && (
                     <>
                         <hr className="receipt-divider" />
