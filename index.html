@@ -2446,6 +2446,7 @@ function AdminFechamentosPage({ storeFechamentos, metas, showToast }) {
                 <div className="stat-card"><span className="stat-icon">📤</span><span className="stat-value" style={{ fontSize:'1.6rem', color:'var(--warning)' }}>{fmt(totals.sangria + totals.usoCaixa)}</span><span className="stat-label">Sangria + Uso de Caixa</span></div>
                 <div className="stat-card"><span className="stat-icon">🏦</span><span className="stat-value" style={{ fontSize:'1.6rem', color: totals.saldo >= 0 ? 'var(--success)' : 'var(--danger)' }}>{fmt(totals.saldo)}</span><span className="stat-label">Saldo em Dinheiro (abertura {fmt(totals.abertura)} incluída)</span></div>
             </div>
+            <FechDashboard filtered={filtered} totals={totals} />
             {ranking.length > 0 && (
                 <div className="card">
                     <h2 className="card-title">🏆 Ranking de Vendedoras (Top 10)</h2>
@@ -2524,6 +2525,93 @@ function AdminFechamentosPage({ storeFechamentos, metas, showToast }) {
                 )}
             </div>
         </div>
+    );
+}
+
+function FechDashboard({ filtered, totals }) {
+    const formas = [
+        { label: '💳 Crédito', valor: totals.credito, cor: 'var(--primary)' },
+        { label: '🏧 Débito', valor: totals.debito, cor: 'var(--secondary-light)' },
+        { label: '📱 PIX', valor: totals.pix, cor: 'var(--success)' },
+        { label: '💵 Dinheiro', valor: totals.dinheiro, cor: 'var(--accent)' },
+        { label: '🧾 Nota Fiscal', valor: totals.nf, cor: 'var(--danger)' },
+    ].filter(f => f.valor > 0).sort((a, b) => b.valor - a.valor);
+    const maxForma = Math.max(...formas.map(f => f.valor), 1);
+
+    const porDia = useMemo(() => {
+        const map = {};
+        filtered.forEach(f => {
+            if (!map[f.date]) map[f.date] = 0;
+            map[f.date] += calcFechTotais(f).totalVendido;
+        });
+        return Object.entries(map).sort((a, b) => a[0] > b[0] ? 1 : -1).map(([d, v]) => ({ date: d, valor: v }));
+    }, [filtered]);
+    const maxDia = Math.max(...porDia.map(d => d.valor), 1);
+
+    const porLoja = useMemo(() => {
+        const map = {};
+        filtered.forEach(f => {
+            if (!map[f.storeName]) map[f.storeName] = { vendido: 0, objetivo: 0 };
+            map[f.storeName].vendido += calcFechTotais(f).totalVendido;
+            map[f.storeName].objetivo += num(f.objetivoDia);
+        });
+        return Object.entries(map).map(([nome, d]) => ({ nome, ...d })).sort((a, b) => b.vendido - a.vendido);
+    }, [filtered]);
+    const maxLoja = Math.max(...porLoja.map(l => l.vendido), 1);
+
+    if (filtered.length === 0) return null;
+
+    return (
+        <>
+            <div className="card">
+                <h2 className="card-title">📊 Participação por Forma de Pagamento</h2>
+                {formas.map(f => (
+                    <div key={f.label} style={{ marginBottom:'1rem' }}>
+                        <div style={{ display:'flex', justifyContent:'space-between', marginBottom:'0.35rem', fontSize:'0.95rem' }}>
+                            <span style={{ fontWeight:'600' }}>{f.label}</span>
+                            <span style={{ fontWeight:'700' }}>{fmt(f.valor)} <span style={{ color:'var(--text-secondary)', fontWeight:'500' }}>({totals.vendido > 0 ? ((f.valor / totals.vendido) * 100).toFixed(1) : 0}%)</span></span>
+                        </div>
+                        <div style={{ background:'var(--bg-dark)', borderRadius:'8px', height:'22px', overflow:'hidden' }}>
+                            <div style={{ width: ((f.valor / maxForma) * 100) + '%', height:'100%', background: f.cor, borderRadius:'8px', transition:'width 0.5s ease' }}></div>
+                        </div>
+                    </div>
+                ))}
+                {formas.length === 0 && <div style={{ color:'var(--text-secondary)' }}>Nenhum valor lançado no período.</div>}
+            </div>
+            {porDia.length > 1 && (
+                <div className="card">
+                    <h2 className="card-title">📈 Evolução Diária do Vendido</h2>
+                    <div style={{ display:'flex', alignItems:'flex-end', gap:'6px', height:'180px', paddingTop:'1.5rem' }}>
+                        {porDia.map(d => (
+                            <div key={d.date} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:'0.3rem', minWidth:0 }} title={d.date + ': ' + fmt(d.valor)}>
+                                <div style={{ fontSize:'0.65rem', color:'var(--text-secondary)', whiteSpace:'nowrap' }}>{fmt(d.valor).replace('R$\u00a0', '')}</div>
+                                <div style={{ width:'100%', maxWidth:'48px', height: Math.max(4, (d.valor / maxDia) * 130) + 'px', background:'linear-gradient(180deg, var(--primary), var(--primary-dark))', borderRadius:'6px 6px 0 0' }}></div>
+                                <div style={{ fontSize:'0.68rem', color:'var(--text-secondary)', whiteSpace:'nowrap' }}>{d.date.slice(8,10) + '/' + d.date.slice(5,7)}</div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+            {porLoja.length > 1 && (
+                <div className="card">
+                    <h2 className="card-title">🏪 Vendido por Loja</h2>
+                    {porLoja.map(l => {
+                        const pct = l.objetivo > 0 ? (l.vendido / l.objetivo) * 100 : null;
+                        return (
+                            <div key={l.nome} style={{ marginBottom:'1rem' }}>
+                                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:'0.35rem', fontSize:'0.95rem' }}>
+                                    <span style={{ fontWeight:'600' }}>{l.nome}</span>
+                                    <span style={{ fontWeight:'700' }}>{fmt(l.vendido)}{pct !== null && <span style={{ marginLeft:'0.5rem', color: pct >= 100 ? 'var(--success)' : pct >= 70 ? 'var(--warning)' : 'var(--danger)', fontWeight:'700' }}>({pct.toFixed(0)}% da meta)</span>}</span>
+                                </div>
+                                <div style={{ background:'var(--bg-dark)', borderRadius:'8px', height:'22px', overflow:'hidden' }}>
+                                    <div style={{ width: ((l.vendido / maxLoja) * 100) + '%', height:'100%', background:'linear-gradient(90deg, var(--secondary), var(--secondary-light))', borderRadius:'8px', transition:'width 0.5s ease' }}></div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </>
     );
 }
 
