@@ -1907,7 +1907,9 @@ function calcFechTotais(f) {
     const totalSaidas = num(f.sangria) + num(f.usoCaixa);
     const abertura = num(f.abertura);
     const saldoDinheiro = abertura + num(f.dinheiro) - totalSaidas;
-    return { totalCredito, totalPix, totalNF, totalVendido, totalSaidas, abertura, saldoDinheiro };
+    const totalAcessorios = (f.acessorios || []).reduce((s, a) => s + num(a.totalPago), 0);
+    const totalDelivery = (f.acessorios || []).filter(a => a.origem === 'Delivery').reduce((s, a) => s + num(a.totalPago), 0);
+    return { totalCredito, totalPix, totalNF, totalVendido, totalSaidas, abertura, saldoDinheiro, totalAcessorios, totalDelivery };
 }
 
 function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, showToast }) {
@@ -1917,7 +1919,7 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, show
     const [saving, setSaving] = useState(false);
     const [showPrint, setShowPrint] = useState(false);
     const [newVend, setNewVend] = useState({ nome:'', valor:'', atendimentos:'' });
-    const [newAcc, setNewAcc] = useState({ valorVenda:'', tipoVenda:'PIX', valorItem:'', valorFrete:'', vendedora:'' });
+    const [newAcc, setNewAcc] = useState({ valorVenda:'', tipoVenda:'PIX', origem:'Delivery', valorItem:'', valorFrete:'', vendedora:'' });
     const [newInt, setNewInt] = useState({ tipo:'Cancelamento', ticket:'', descricao:'' });
 
     useEffect(() => {
@@ -1945,7 +1947,8 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, show
     const diasNoMes = new Date(parseInt(dParts[0]), parseInt(dParts[1]), 0).getDate();
     const objetivoDia = metaMensal > 0 ? metaMensal / diasNoMes : 0;
 
-    const { totalCredito, totalPix, totalNF, totalVendido, totalSaidas, saldoDinheiro } = calcFechTotais(fech);
+    const { totalCredito, totalPix, totalNF, totalVendido, totalSaidas, saldoDinheiro, totalAcessorios, totalDelivery } = calcFechTotais(fech);
+    const accPorTipo = ACC_TIPOS.map(t => ({ tipo: t, valor: (fech.acessorios || []).filter(a => a.tipoVenda === t).reduce((s, a) => s + num(a.totalPago), 0) })).filter(x => x.valor > 0);
     const pctBatido = objetivoDia > 0 ? (totalVendido / objetivoDia) * 100 : 0;
 
     const setF = (k, v) => setFech(p => ({ ...p, [k]: v }));
@@ -1958,11 +1961,11 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, show
     const addAcc = () => {
         if (!num(newAcc.valorItem) && !num(newAcc.valorFrete)) return;
         setF('acessorios', [...(fech.acessorios || []), {
-            id: Date.now(), tipoVenda: newAcc.tipoVenda, vendedora: newAcc.vendedora.toUpperCase(),
+            id: Date.now(), tipoVenda: newAcc.tipoVenda, origem: newAcc.origem, vendedora: newAcc.vendedora.toUpperCase(),
             valorVenda: num(newAcc.valorVenda), valorItem: num(newAcc.valorItem), valorFrete: num(newAcc.valorFrete),
             totalPago: num(newAcc.valorItem) + num(newAcc.valorFrete)
         }]);
-        setNewAcc({ valorVenda:'', tipoVenda:'PIX', valorItem:'', valorFrete:'', vendedora:'' });
+        setNewAcc({ valorVenda:'', tipoVenda:'PIX', origem: newAcc.origem, valorItem:'', valorFrete:'', vendedora:'' });
     };
     const addInt = () => {
         if (!newInt.descricao && !newInt.ticket) return;
@@ -1993,7 +1996,8 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, show
                 ...fech, storeName,
                 valorTrocas, valorTrocasEntrada, valorTrocasSaida, trocasCount: trocasDoDia.length,
                 metaMensal, objetivoDia, pctBatido,
-                totalCredito, totalPix, totalNF, totalVendido, totalSaidas, saldoDinheiro
+                totalCredito, totalPix, totalNF, totalVendido, totalSaidas, saldoDinheiro,
+                totalAcessorios, totalDelivery
             });
             showToast('Fechamento salvo! ✅');
         } catch(e) { console.error(e); showToast('Erro ao salvar fechamento', 'error'); }
@@ -2107,8 +2111,13 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, show
                 )}
             </div>
             <div className="card">
-                <h2 className="card-title">📦 Frete, Bandejas, Caixas e Acessórios</h2>
+                <h2 className="card-title">🛵 Delivery, Frete, Bandejas, Caixas e Acessórios</h2>
                 <div className="form-row">
+                    <div className="form-group"><label className="form-label">Origem</label>
+                        <select className="form-select" value={newAcc.origem} onChange={e => setNewAcc({...newAcc, origem: e.target.value})}>
+                            <option>Delivery</option><option>Loja</option>
+                        </select>
+                    </div>
                     <div className="form-group"><label className="form-label">Valor da Venda (PDV)</label><input type="text" inputMode="decimal" className="form-input" value={newAcc.valorVenda} onChange={e => setNewAcc({...newAcc, valorVenda: e.target.value})} placeholder="0,00" /></div>
                     <div className="form-group"><label className="form-label">Tipo de Venda</label>
                         <select className="form-select" value={newAcc.tipoVenda} onChange={e => setNewAcc({...newAcc, tipoVenda: e.target.value})}>
@@ -2123,10 +2132,11 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, show
                 {(fech.acessorios || []).length > 0 && (
                     <div className="table-container">
                         <table className="table">
-                            <thead><tr><th>Venda (PDV)</th><th>Tipo</th><th>Item</th><th>Frete</th><th>Total Pago</th><th>Vendedora</th><th></th></tr></thead>
+                            <thead><tr><th>Origem</th><th>Venda (PDV)</th><th>Tipo</th><th>Item</th><th>Frete</th><th>Total Pago</th><th>Vendedora</th><th></th></tr></thead>
                             <tbody>
                                 {(fech.acessorios || []).map(a => (
                                     <tr key={a.id}>
+                                        <td><span className={a.origem === 'Delivery' ? 'badge badge-pending' : 'badge badge-confirmed'} style={{ padding:'0.25rem 0.6rem', fontSize:'0.78rem' }}>{a.origem === 'Delivery' ? '🛵 Delivery' : '🏪 Loja'}</span></td>
                                         <td>{fmt(a.valorVenda)}</td>
                                         <td>{a.tipoVenda}</td>
                                         <td>{fmt(a.valorItem)}</td>
@@ -2138,6 +2148,15 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, show
                                 ))}
                             </tbody>
                         </table>
+                    </div>
+                )}
+                {(fech.acessorios || []).length > 0 && (
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))', gap:'1rem', marginTop:'1rem' }}>
+                        {accPorTipo.map(x => (
+                            <div key={x.tipo} className="cal-summary-item"><span className="cal-summary-value" style={{ fontSize:'1.15rem' }}>{fmt(x.valor)}</span><div className="cal-summary-label">{x.tipo}</div></div>
+                        ))}
+                        <div className="cal-summary-item" style={{ border:'1px solid var(--warning)' }}><span className="cal-summary-value" style={{ fontSize:'1.15rem', color:'var(--warning)' }}>{fmt(totalDelivery)}</span><div className="cal-summary-label">🛵 Total Delivery</div></div>
+                        <div className="cal-summary-item" style={{ border:'1px solid var(--primary)' }}><span className="cal-summary-value" style={{ fontSize:'1.15rem', color:'var(--primary)' }}>{fmt(totalAcessorios)}</span><div className="cal-summary-label">💰 Total da Seção</div></div>
                     </div>
                 )}
             </div>
@@ -2174,9 +2193,28 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, show
                     <FieldMoney label="Valor da Sangria" value={fech.sangria} onChange={v => setF('sangria', v)} />
                     <FieldMoney label="Uso de Caixa" value={fech.usoCaixa} onChange={v => setF('usoCaixa', v)} />
                 </div>
-                <div className="cal-summary-item" style={{ textAlign:'left', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                    <span style={{ fontWeight:'700' }}>💵 Saldo em Dinheiro (Abertura + Dinheiro − Sangria − Uso de Caixa)</span>
-                    <span className="cal-summary-value" style={{ color: saldoDinheiro >= 0 ? 'var(--success)' : 'var(--danger)' }}>{fmt(saldoDinheiro)}</span>
+                <div style={{ fontWeight:'700', margin:'0.5rem 0 0.75rem' }}>💵 Resumo do Caixa (Dinheiro)</div>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(170px, 1fr))', gap:'1rem' }}>
+                    <div className="cal-summary-item">
+                        <span className="cal-summary-value" style={{ fontSize:'1.2rem' }}>{fmt(num(fech.abertura))}</span>
+                        <div className="cal-summary-label">🔓 Abertura do Caixa{fech.aberturaPor ? ' — ' + fech.aberturaPor : ''}{fech.aberturaHora ? ' (' + fech.aberturaHora + ')' : ''}</div>
+                    </div>
+                    <div className="cal-summary-item">
+                        <span className="cal-summary-value" style={{ fontSize:'1.2rem', color:'var(--success)' }}>{fmt(num(fech.dinheiro))}</span>
+                        <div className="cal-summary-label">📥 Entrou em Dinheiro no Dia</div>
+                    </div>
+                    <div className="cal-summary-item">
+                        <span className="cal-summary-value" style={{ fontSize:'1.2rem', color:'var(--danger)' }}>− {fmt(num(fech.sangria))}</span>
+                        <div className="cal-summary-label">📤 Retirada de Sangria</div>
+                    </div>
+                    <div className="cal-summary-item">
+                        <span className="cal-summary-value" style={{ fontSize:'1.2rem', color:'var(--warning)' }}>− {fmt(num(fech.usoCaixa))}</span>
+                        <div className="cal-summary-label">🛍️ Uso de Caixa (despesas)</div>
+                    </div>
+                    <div className="cal-summary-item" style={{ border:'2px solid ' + (saldoDinheiro >= 0 ? 'var(--success)' : 'var(--danger)') }}>
+                        <span className="cal-summary-value" style={{ fontSize:'1.2rem', color: saldoDinheiro >= 0 ? 'var(--success)' : 'var(--danger)' }}>{fmt(saldoDinheiro)}</span>
+                        <div className="cal-summary-label">🏦 Saldo Final no Caixa</div>
+                    </div>
                 </div>
             </div>
             <div className="card">
@@ -2249,10 +2287,12 @@ function PrintFechamento({ storeName, date, fech, trocasDoDia, valorTrocas, valo
                 {(fech.acessorios || []).length > 0 && (
                     <>
                         <hr className="receipt-divider" />
-                        <div className="receipt-section-title">FRETE, BANDEJAS, CAIXAS E ACESSÓRIOS</div>
+                        <div className="receipt-section-title">DELIVERY, FRETE, BANDEJAS, CAIXAS E ACESSÓRIOS</div>
                         {(fech.acessorios || []).map(a => (
-                            <div key={a.id} className="receipt-item"><span>{a.tipoVenda}{a.vendedora ? ' • ' + a.vendedora : ''} (item {fmt(a.valorItem)} + frete {fmt(a.valorFrete)})</span><strong>{fmt(a.totalPago)}</strong></div>
+                            <div key={a.id} className="receipt-item"><span>{a.origem === 'Delivery' ? '[DELIVERY] ' : '[LOJA] '}{a.tipoVenda}{a.vendedora ? ' • ' + a.vendedora : ''} (item {fmt(a.valorItem)} + frete {fmt(a.valorFrete)})</span><strong>{fmt(a.totalPago)}</strong></div>
                         ))}
+                        <div className="receipt-item"><span>Total Delivery</span><strong>{fmt((fech.acessorios || []).filter(a => a.origem === 'Delivery').reduce((s, a) => s + num(a.totalPago), 0))}</strong></div>
+                        <div className="receipt-total"><span>TOTAL DA SEÇÃO</span><span>{fmt((fech.acessorios || []).reduce((s, a) => s + num(a.totalPago), 0))}</span></div>
                     </>
                 )}
                 <hr className="receipt-divider" />
@@ -2322,13 +2362,14 @@ function AdminFechamentosPage({ storeFechamentos, metas, showToast }) {
     }, [storeFechamentos, range, storeFilter]);
 
     const totals = useMemo(() => {
-        const t = { credito: 0, debito: 0, pix: 0, dinheiro: 0, nf: 0, vendido: 0, trocas: 0, sangria: 0, usoCaixa: 0, saldo: 0, objetivo: 0, abertura: 0 };
+        const t = { credito: 0, debito: 0, pix: 0, dinheiro: 0, nf: 0, vendido: 0, trocas: 0, sangria: 0, usoCaixa: 0, saldo: 0, objetivo: 0, abertura: 0, acessorios: 0, delivery: 0 };
         filtered.forEach(f => {
             const c = calcFechTotais(f);
             t.credito += c.totalCredito; t.debito += num(f.debito); t.pix += c.totalPix;
             t.dinheiro += num(f.dinheiro); t.nf += c.totalNF; t.vendido += c.totalVendido;
             t.trocas += num(f.valorTrocas); t.sangria += num(f.sangria); t.usoCaixa += num(f.usoCaixa);
             t.saldo += c.saldoDinheiro; t.objetivo += num(f.objetivoDia); t.abertura += num(f.abertura);
+            t.acessorios += c.totalAcessorios; t.delivery += c.totalDelivery;
         });
         return t;
     }, [filtered]);
@@ -2365,6 +2406,7 @@ function AdminFechamentosPage({ storeFechamentos, metas, showToast }) {
                 'PIX QRCode': num(f.pixQr), 'PIX CNPJ': num(f.pixCnpj),
                 'NF Boleto': num(f.nfBoleto), 'NF Credito': num(f.nfCredito),
                 'Trocas (qtd)': num(f.trocasCount), 'Trocas Entrada (R$)': num(f.valorTrocasEntrada), 'Trocas Saida (R$)': num(f.valorTrocasSaida), 'Trocas Diferenca (R$)': num(f.valorTrocas),
+                'Delivery (R$)': c.totalDelivery, 'Acessorios Total (R$)': c.totalAcessorios,
                 'Sangria': num(f.sangria), 'Uso de Caixa': num(f.usoCaixa),
                 'Saldo Dinheiro': c.saldoDinheiro, 'Observacoes': f.observacoes || ''
             };
@@ -2443,7 +2485,9 @@ function AdminFechamentosPage({ storeFechamentos, metas, showToast }) {
             <div className="stats-grid">
                 <div className="stat-card"><span className="stat-icon">💰</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.vendido)}</span><span className="stat-label">Total Vendido {totals.objetivo > 0 ? '(' + pctPeriodo.toFixed(0) + '% do objetivo)' : ''}</span></div>
                 <div className="stat-card"><span className="stat-icon">🔄</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.trocas)}</span><span className="stat-label">Trocas</span></div>
-                <div className="stat-card"><span className="stat-icon">📤</span><span className="stat-value" style={{ fontSize:'1.6rem', color:'var(--warning)' }}>{fmt(totals.sangria + totals.usoCaixa)}</span><span className="stat-label">Sangria + Uso de Caixa</span></div>
+                <div className="stat-card"><span className="stat-icon">🛵</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.delivery)}</span><span className="stat-label">Delivery (acessórios: {fmt(totals.acessorios)})</span></div>
+                <div className="stat-card"><span className="stat-icon">📤</span><span className="stat-value" style={{ fontSize:'1.6rem', color:'var(--danger)' }}>{fmt(totals.sangria)}</span><span className="stat-label">Retirada de Sangria</span></div>
+                <div className="stat-card"><span className="stat-icon">🛍️</span><span className="stat-value" style={{ fontSize:'1.6rem', color:'var(--warning)' }}>{fmt(totals.usoCaixa)}</span><span className="stat-label">Uso de Caixa</span></div>
                 <div className="stat-card"><span className="stat-icon">🏦</span><span className="stat-value" style={{ fontSize:'1.6rem', color: totals.saldo >= 0 ? 'var(--success)' : 'var(--danger)' }}>{fmt(totals.saldo)}</span><span className="stat-label">Saldo em Dinheiro (abertura {fmt(totals.abertura)} incluída)</span></div>
             </div>
             <FechDashboard filtered={filtered} totals={totals} />
@@ -2495,7 +2539,7 @@ function AdminFechamentosPage({ storeFechamentos, metas, showToast }) {
                 {filtered.length > 0 ? (
                     <div className="table-container">
                         <table className="table">
-                            <thead><tr><th>Data</th><th>Loja</th><th>Objetivo</th><th>Vendido</th><th>%</th><th>Crédito</th><th>Débito</th><th>PIX</th><th>Dinheiro</th><th>Trocas</th><th>Sangria</th><th>Saldo</th></tr></thead>
+                            <thead><tr><th>Data</th><th>Loja</th><th>Abertura</th><th>Objetivo</th><th>Vendido</th><th>%</th><th>Crédito</th><th>Débito</th><th>PIX</th><th>Dinheiro</th><th>Trocas</th><th>Delivery</th><th>Sangria</th><th>Uso Caixa</th><th>Saldo</th></tr></thead>
                             <tbody>
                                 {filtered.map(f => {
                                     const c = calcFechTotais(f);
@@ -2504,6 +2548,7 @@ function AdminFechamentosPage({ storeFechamentos, metas, showToast }) {
                                         <tr key={f.storeId + '-' + f.id}>
                                             <td>{parseDateKey(f.date) ? parseDateKey(f.date).toLocaleDateString('pt-BR') : f.date}</td>
                                             <td style={{ fontSize:'0.85rem' }}>{f.storeName}</td>
+                                            <td>{fmt(num(f.abertura))}{f.aberturaPor && <div style={{ fontSize:'0.72rem', color:'var(--text-secondary)' }}>{f.aberturaPor}{f.aberturaHora ? ' ' + f.aberturaHora : ''}</div>}</td>
                                             <td>{num(f.objetivoDia) > 0 ? fmt(num(f.objetivoDia)) : '-'}</td>
                                             <td style={{ fontWeight:'700' }}>{fmt(c.totalVendido)}</td>
                                             <td style={{ fontWeight:'700', color: pct >= 100 ? 'var(--success)' : pct >= 70 ? 'var(--warning)' : 'var(--danger)' }}>{num(f.objetivoDia) > 0 ? pct.toFixed(0) + '%' : '-'}</td>
@@ -2512,7 +2557,9 @@ function AdminFechamentosPage({ storeFechamentos, metas, showToast }) {
                                             <td>{fmt(c.totalPix)}</td>
                                             <td>{fmt(num(f.dinheiro))}</td>
                                             <td>{fmt(num(f.valorTrocas))}</td>
-                                            <td>{fmt(num(f.sangria))}</td>
+                                            <td>{fmt(c.totalDelivery)}</td>
+                                            <td style={{ color:'var(--danger)' }}>{fmt(num(f.sangria))}</td>
+                                            <td style={{ color:'var(--warning)' }}>{fmt(num(f.usoCaixa))}</td>
                                             <td style={{ fontWeight:'700', color: c.saldoDinheiro >= 0 ? 'var(--success)' : 'var(--danger)' }}>{fmt(c.saldoDinheiro)}</td>
                                         </tr>
                                     );
@@ -2630,8 +2677,10 @@ function PrintAdminFechamentos({ filtered, totals, range, ranking, inters, store
                 <div className="receipt-item"><span>Nota Fiscal</span><strong>{fmt(totals.nf)}</strong></div>
                 <div className="receipt-total"><span>TOTAL VENDIDO</span><span>{fmt(totals.vendido)}</span></div>
                 <div className="receipt-item"><span>Trocas</span><strong>{fmt(totals.trocas)}</strong></div>
+                <div className="receipt-item"><span>Delivery / Acessorios</span><strong>{fmt(totals.delivery)} / {fmt(totals.acessorios)}</strong></div>
                 <div className="receipt-item"><span>Abertura (fundo de troco)</span><strong>{fmt(totals.abertura)}</strong></div>
-                <div className="receipt-item"><span>Sangria + Uso de Caixa</span><strong>{fmt(totals.sangria + totals.usoCaixa)}</strong></div>
+                <div className="receipt-item"><span>Retirada de Sangria</span><strong>{fmt(totals.sangria)}</strong></div>
+                <div className="receipt-item"><span>Uso de Caixa</span><strong>{fmt(totals.usoCaixa)}</strong></div>
                 <div className="receipt-diff" style={{ borderColor: totals.saldo >= 0 ? '#16a34a' : '#dc2626', color: totals.saldo >= 0 ? '#16a34a' : '#dc2626' }}>SALDO EM DINHEIRO: {fmt(totals.saldo)}</div>
                 <hr className="receipt-divider" />
                 <div className="receipt-section-title">FECHAMENTOS ({filtered.length})</div>
