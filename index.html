@@ -857,6 +857,11 @@ function AdminView({ onLogout, showToast }) {
                             </div>
                         </li>
                         <li className="nav-item">
+                            <div className={`nav-link ${adminPage === 'vendedoras' ? 'active' : ''}`} onClick={() => setAdminPage('vendedoras')}>
+                                <span className="nav-icon">👩‍💼</span>Vendedoras
+                            </div>
+                        </li>
+                        <li className="nav-item">
                             <div className={`nav-link ${adminPage === 'calendar' ? 'active' : ''}`} onClick={() => setAdminPage('calendar')}>
                                 <span className="nav-icon">🗓️</span>Calendario Global
                             </div>
@@ -879,6 +884,9 @@ function AdminView({ onLogout, showToast }) {
                 )}
                 {adminPage === 'metas' && (
                     <AdminMetasPage metas={metas} showToast={showToast} />
+                )}
+                {adminPage === 'vendedoras' && (
+                    <AdminVendedorasPage showToast={showToast} />
                 )}
                 {adminPage === 'calendar' && (
                     <div>
@@ -2082,9 +2090,41 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, show
                     <div className="cal-summary-item"><span className="cal-summary-value">{fmt(totalNF)}</span><div className="cal-summary-label">🧾 Nota Fiscal</div></div>
                 </div>
             </div>
+            {totalVendido > 0 && (() => {
+                const formasLoja = [
+                    { label: '💳 Crédito', valor: totalCredito, cor: 'var(--primary)' },
+                    { label: '🏧 Débito', valor: num(fech.debito), cor: 'var(--secondary-light)' },
+                    { label: '📱 PIX', valor: totalPix, cor: 'var(--success)' },
+                    { label: '💵 Dinheiro', valor: num(fech.dinheiro), cor: 'var(--accent)' },
+                    { label: '🧾 Nota Fiscal', valor: totalNF, cor: 'var(--danger)' },
+                ].filter(f => f.valor > 0).sort((a, b) => b.valor - a.valor);
+                const maxF = Math.max(...formasLoja.map(f => f.valor), 1);
+                return (
+                    <div className="card">
+                        <h2 className="card-title">📊 Participação por Forma de Pagamento</h2>
+                        <p style={{ color:'var(--text-secondary)', fontSize:'0.9rem', marginTop:'-0.75rem', marginBottom:'1.5rem' }}>Analise seus maiores indicadores do dia — o 🥇 é a forma que mais entrou.</p>
+                        {formasLoja.map((f, i) => (
+                            <div key={f.label} style={{ marginBottom:'1rem' }}>
+                                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:'0.35rem', fontSize:'0.95rem' }}>
+                                    <span style={{ fontWeight: i === 0 ? '800' : '600' }}>{i === 0 ? '🥇 ' : ''}{f.label}</span>
+                                    <span style={{ fontWeight:'700' }}>{fmt(f.valor)} <span style={{ color: i === 0 ? f.cor : 'var(--text-secondary)', fontWeight: i === 0 ? '800' : '500' }}>({((f.valor / totalVendido) * 100).toFixed(1)}%)</span></span>
+                                </div>
+                                <div style={{ background:'var(--bg-dark)', borderRadius:'8px', height:'22px', overflow:'hidden', border: i === 0 ? '1px solid ' + f.cor : 'none' }}>
+                                    <div style={{ width: ((f.valor / maxF) * 100) + '%', height:'100%', background: f.cor, borderRadius:'8px', transition:'width 0.5s ease' }}></div>
+                                </div>
+                            </div>
+                        ))}
+                        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:'1rem', marginTop:'1.25rem' }}>
+                            <div className="cal-summary-item"><span className="cal-summary-value" style={{ fontSize:'1.15rem' }}>{totalVendido > 0 ? ((totalCredito / totalVendido) * 100).toFixed(1) + '%' : '-'}</span><div className="cal-summary-label">💳 Participação do Cartão (crédito)</div></div>
+                            <div className="cal-summary-item"><span className="cal-summary-value" style={{ fontSize:'1.15rem' }}>{totalVendido > 0 ? (((totalCredito + num(fech.debito)) / totalVendido) * 100).toFixed(1) + '%' : '-'}</span><div className="cal-summary-label">💳+🏧 Cartão Total (crédito + débito)</div></div>
+                            <div className="cal-summary-item"><span className="cal-summary-value" style={{ fontSize:'1.15rem' }}>{formasLoja.length > 0 ? formasLoja[0].label : '-'}</span><div className="cal-summary-label">🥇 Maior Indicador do Dia</div></div>
+                        </div>
+                    </div>
+                );
+            })()}
             <div className="card">
                 <h2 className="card-title">🏆 Vendas por Vendedora</h2>
-                <datalist id="vendedoras-list">{(vendedoras || []).map(v => <option key={v.id} value={v.nome} />)}</datalist>
+                <datalist id="vendedoras-list">{(vendedoras || []).filter(v => !v.arquivada).map(v => <option key={v.id} value={v.nome} />)}</datalist>
                 <div className="form-row">
                     <div className="form-group"><label className="form-label">Vendedora</label><input className="form-input" value={newVend.nome} onChange={e => setNewVend({...newVend, nome: e.target.value})} placeholder="Nome" list="vendedoras-list" /></div>
                     <div className="form-group"><label className="form-label">Valor Vendido (R$)</label><input type="text" inputMode="decimal" className="form-input" value={newVend.valor} onChange={e => setNewVend({...newVend, valor: e.target.value})} placeholder="0,00" /></div>
@@ -2708,6 +2748,142 @@ function PrintAdminFechamentos({ filtered, totals, range, ranking, inters, store
     );
 }
 
+function AdminVendedorasPage({ showToast }) {
+    const [selStore, setSelStore] = useState(STORES[0].id);
+    const [vendedoras, setVendedoras] = useState([]);
+    const [loadingV, setLoadingV] = useState(true);
+    const [novoNome, setNovoNome] = useState('');
+    const [editingId, setEditingId] = useState(null);
+    const [editNome, setEditNome] = useState('');
+
+    useEffect(() => {
+        setLoadingV(true);
+        const unsub = window.TrocaDB.ouvirVendedoras(selStore, (v) => { setVendedoras(v || []); setLoadingV(false); });
+        return () => unsub && unsub();
+    }, [selStore]);
+
+    const salvar = async (novaLista, msg) => {
+        try {
+            await window.TrocaDB.salvarVendedoras(selStore, novaLista);
+            showToast(msg);
+        } catch(e) { console.error(e); showToast('Erro ao salvar', 'error'); }
+    };
+
+    const handleAdd = () => {
+        const nome = novoNome.trim().toUpperCase();
+        if (!nome) return;
+        if (vendedoras.some(v => v.nome === nome && !v.arquivada)) { showToast('Vendedora já cadastrada nesta loja', 'error'); return; }
+        salvar([...vendedoras, { id: Date.now(), nome, arquivada: false }], 'Vendedora cadastrada ✅');
+        setNovoNome('');
+    };
+    const handleEditSave = () => {
+        const nome = editNome.trim().toUpperCase();
+        if (!nome) return;
+        salvar(vendedoras.map(v => v.id === editingId ? { ...v, nome } : v), 'Nome atualizado ✅');
+        setEditingId(null);
+    };
+    const handleArquivar = (id) => {
+        salvar(vendedoras.map(v => v.id === id ? { ...v, arquivada: true, arquivadaEm: new Date().toISOString().split('T')[0] } : v), 'Vendedora arquivada 📁 (histórico preservado)');
+    };
+    const handleReativar = (id) => {
+        salvar(vendedoras.map(v => v.id === id ? { ...v, arquivada: false } : v), 'Vendedora reativada ✅');
+    };
+    const handleExcluir = (id) => {
+        const v = vendedoras.find(x => x.id === id);
+        if (!confirm('Excluir ' + (v ? v.nome : '') + ' DEFINITIVAMENTE do cadastro?\n\nAs vendas e fechamentos já registrados NÃO serão apagados, mas o nome some do cadastro. Se quiser guardar os dados, use ARQUIVAR.')) return;
+        salvar(vendedoras.filter(x => x.id !== id), 'Vendedora excluída do cadastro');
+    };
+
+    const ativas = vendedoras.filter(v => !v.arquivada);
+    const arquivadas = vendedoras.filter(v => v.arquivada);
+    const storeName = (STORES.find(s => s.id === selStore) || {}).name;
+
+    return (
+        <div>
+            <div className="header">
+                <h1 className="page-title">👩‍💼 Vendedoras</h1>
+                <p className="page-subtitle">Cadastre, edite, arquive (guarda os dados) ou exclua por loja</p>
+            </div>
+            <div className="card">
+                <div className="form-row">
+                    <div className="form-group">
+                        <label className="form-label">Loja</label>
+                        <select className="form-select" value={selStore} onChange={e => setSelStore(e.target.value)}>
+                            {STORES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                    </div>
+                    <div className="form-group"><label className="form-label">Nova Vendedora</label><input className="form-input" value={novoNome} onChange={e => setNovoNome(e.target.value)} placeholder="Nome" onKeyDown={e => { if (e.key === 'Enter') handleAdd(); }} /></div>
+                    <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}><button className="btn btn-primary" onClick={handleAdd} style={{ width:'100%' }}>➕ Cadastrar</button></div>
+                </div>
+            </div>
+            <div className="card">
+                <h2 className="card-title">✅ Ativas — {storeName} ({ativas.length})</h2>
+                {loadingV ? (
+                    <div style={{ color:'var(--text-secondary)' }}>⏳ Carregando...</div>
+                ) : ativas.length > 0 ? (
+                    <div className="table-container">
+                        <table className="table">
+                            <thead><tr><th>Nome</th><th>Ações</th></tr></thead>
+                            <tbody>
+                                {ativas.map(v => (
+                                    <tr key={v.id}>
+                                        <td style={{ fontWeight:'700' }}>
+                                            {editingId === v.id ? (
+                                                <input className="form-input" value={editNome} onChange={e => setEditNome(e.target.value)} style={{ maxWidth:'280px' }} onKeyDown={e => { if (e.key === 'Enter') handleEditSave(); }} />
+                                            ) : v.nome}
+                                        </td>
+                                        <td>
+                                            {editingId === v.id ? (
+                                                <div style={{ display:'flex', gap:'0.5rem' }}>
+                                                    <button className="btn btn-success btn-small" onClick={handleEditSave}>💾 Salvar</button>
+                                                    <button className="btn btn-outline btn-small" onClick={() => setEditingId(null)}>Cancelar</button>
+                                                </div>
+                                            ) : (
+                                                <div style={{ display:'flex', gap:'0.5rem', flexWrap:'wrap' }}>
+                                                    <button className="btn btn-primary btn-small" onClick={() => { setEditingId(v.id); setEditNome(v.nome); }}>✏️ Editar</button>
+                                                    <button className="btn btn-warning btn-small" onClick={() => handleArquivar(v.id)}>📁 Arquivar</button>
+                                                    <button className="btn btn-danger btn-small" onClick={() => handleExcluir(v.id)}>🗑️ Excluir</button>
+                                                </div>
+                                            )}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <div className="empty-state"><div className="empty-state-icon">👩‍💼</div><p>Nenhuma vendedora ativa nesta loja</p></div>
+                )}
+            </div>
+            {arquivadas.length > 0 && (
+                <div className="card">
+                    <h2 className="card-title">📁 Arquivadas ({arquivadas.length})</h2>
+                    <p style={{ color:'var(--text-secondary)', fontSize:'0.9rem', marginBottom:'1rem' }}>Não aparecem nas telas das lojas, mas todo o histórico de vendas e fechamentos continua nos relatórios.</p>
+                    <div className="table-container">
+                        <table className="table">
+                            <thead><tr><th>Nome</th><th>Arquivada em</th><th>Ações</th></tr></thead>
+                            <tbody>
+                                {arquivadas.map(v => (
+                                    <tr key={v.id}>
+                                        <td style={{ fontWeight:'700', color:'var(--text-secondary)' }}>{v.nome}</td>
+                                        <td>{v.arquivadaEm ? parseDateKey(v.arquivadaEm).toLocaleDateString('pt-BR') : '-'}</td>
+                                        <td>
+                                            <div style={{ display:'flex', gap:'0.5rem' }}>
+                                                <button className="btn btn-success btn-small" onClick={() => handleReativar(v.id)}>♻️ Reativar</button>
+                                                <button className="btn btn-danger btn-small" onClick={() => handleExcluir(v.id)}>🗑️ Excluir</button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 function AdminMetasPage({ metas, showToast }) {
     const now = new Date();
     const [month, setMonth] = useState(now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0'));
@@ -2881,9 +3057,9 @@ function VendasPage({ storeId, storeName, inventory, vendas, vendedoras, onSaveV
                     <div className="form-group"><label className="form-label">Nome da Vendedora</label><input className="form-input" value={novaVendedora} onChange={e => setNovaVendedora(e.target.value)} placeholder="Ex: ELISA" onKeyDown={e => { if (e.key === 'Enter') addVendedora(); }} /></div>
                     <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}><button type="button" className="btn btn-primary" onClick={addVendedora} style={{ width:'100%' }}>➕ Cadastrar</button></div>
                 </div>
-                {(vendedoras || []).length > 0 && (
+                {(vendedoras || []).filter(v => !v.arquivada).length > 0 && (
                     <div style={{ display:'flex', flexWrap:'wrap', gap:'0.6rem' }}>
-                        {(vendedoras || []).map(v => (
+                        {(vendedoras || []).filter(v => !v.arquivada).map(v => (
                             <span key={v.id} className="badge badge-confirmed" style={{ display:'inline-flex', alignItems:'center', gap:'0.5rem' }}>
                                 {v.nome}
                                 <button onClick={() => removeVendedora(v.id)} style={{ background:'none', border:'none', color:'var(--danger)', cursor:'pointer', fontSize:'1rem', padding:0, lineHeight:1 }}>×</button>
@@ -2899,7 +3075,7 @@ function VendasPage({ storeId, storeName, inventory, vendas, vendedoras, onSaveV
                     <div className="form-group"><label className="form-label">Vendedora *</label>
                         <select className="form-select" value={form.vendedora} onChange={e => setF('vendedora', e.target.value)}>
                             <option value="">Selecione...</option>
-                            {(vendedoras || []).map(v => <option key={v.id} value={v.nome}>{v.nome}</option>)}
+                            {(vendedoras || []).filter(v => !v.arquivada).map(v => <option key={v.id} value={v.nome}>{v.nome}</option>)}
                         </select>
                     </div>
                     <div className="form-group"><label className="form-label">Nº Ticket/Venda</label><input className="form-input" value={form.ticket} onChange={e => setF('ticket', e.target.value)} placeholder="Ex: 17081" /></div>
