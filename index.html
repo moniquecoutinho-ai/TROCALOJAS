@@ -465,6 +465,93 @@
         }, function() { callback([]); });
     }
 
+    // ===== ABERTURA DE TESTERS (loja solicita, financeiro aprova) =====
+    async function salvarTester(storeId, tester) {
+        const ref = db.collection("stores").doc(storeId).collection("testers");
+        const docRef = await ref.add({ ...tester, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+        return docRef.id;
+    }
+
+    async function atualizarTester(storeId, testerId, dados) {
+        await db.collection("stores").doc(storeId).collection("testers").doc(testerId)
+            .update({ ...dados, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    }
+
+    async function deletarTester(storeId, testerId) {
+        await db.collection("stores").doc(storeId).collection("testers").doc(testerId).delete();
+    }
+
+    function ouvirTesters(storeId, callback) {
+        const ref = db.collection("stores").doc(storeId).collection("testers").orderBy("createdAt", "desc");
+        return ref.onSnapshot(function(snap) {
+            callback(snap.docs.map(function(d) { return { ...d.data(), id: d.id }; }));
+        }, function(err) { console.error("Firebase testers erro:", err); callback([]); });
+    }
+
+    function ouvirTodosTesters(lojas, callback) {
+        const unsubscribes = lojas.map(function(loja) {
+            const ref = db.collection("stores").doc(loja.id).collection("testers").orderBy("createdAt", "desc");
+            return ref.onSnapshot(function(snap) {
+                const testers = snap.docs.map(function(d) {
+                    return { ...d.data(), id: d.id, storeId: loja.id, storeName: loja.name };
+                });
+                callback(loja.id, testers);
+            }, function(err) { console.error("Firebase testers erro " + loja.id + ":", err); });
+        });
+        return function() { unsubscribes.forEach(function(u) { u && u(); }); };
+    }
+
+    // ===== INSUMOS (estoque de suprimentos por loja) =====
+    async function salvarInsumos(storeId, items) {
+        const ref = db.collection("stores").doc(storeId).collection("config").doc("insumos");
+        await ref.set({ items: items, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    }
+
+    function ouvirInsumos(storeId, initialItems, callback) {
+        const ref = db.collection("stores").doc(storeId).collection("config").doc("insumos");
+        return ref.onSnapshot(function(snap) {
+            if (snap.exists) callback(snap.data().items || initialItems);
+            else callback(initialItems);
+        }, function() { callback(initialItems); });
+    }
+
+    function ouvirTodosInsumos(lojas, initialItems, callback) {
+        const unsubscribes = lojas.map(function(loja) {
+            const ref = db.collection("stores").doc(loja.id).collection("config").doc("insumos");
+            return ref.onSnapshot(function(snap) {
+                callback(loja.id, snap.exists ? (snap.data().items || initialItems) : initialItems);
+            }, function() { callback(loja.id, initialItems); });
+        });
+        return function() { unsubscribes.forEach(function(u) { u && u(); }); };
+    }
+
+    // ===== MOVIMENTACOES DE INSUMOS (entrada/saida como na planilha) =====
+    async function salvarMovInsumo(storeId, mov) {
+        const ref = db.collection("stores").doc(storeId).collection("insumos_mov");
+        const docRef = await ref.add({ ...mov, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+        return docRef.id;
+    }
+
+    function ouvirMovInsumos(storeId, callback) {
+        const ref = db.collection("stores").doc(storeId).collection("insumos_mov").orderBy("createdAt", "desc");
+        return ref.onSnapshot(function(snap) {
+            callback(snap.docs.map(function(d) { return { ...d.data(), id: d.id }; }));
+        }, function(err) { console.error("Firebase mov insumos erro:", err); callback([]); });
+    }
+
+    function ouvirTodasMovInsumos(lojas, callback) {
+        const unsubscribes = lojas.map(function(loja) {
+            const ref = db.collection("stores").doc(loja.id).collection("insumos_mov").orderBy("createdAt", "desc");
+            return ref.onSnapshot(function(snap) {
+                const movs = snap.docs.map(function(d) {
+                    return { ...d.data(), id: d.id, storeId: loja.id, storeName: loja.name };
+                });
+                callback(loja.id, movs);
+            }, function(err) { console.error("Firebase mov insumos erro " + loja.id + ":", err); });
+        });
+        return function() { unsubscribes.forEach(function(u) { u && u(); }); };
+    }
+
     // ===== FRETES AVULSOS (lancados pelo Admin por loja) =====
     async function salvarFrete(storeId, frete) {
         const ref = db.collection("stores").doc(storeId).collection("fretes");
@@ -516,6 +603,9 @@
         salvarVenda, deletarVenda, ouvirVendas, ouvirTodasVendas,
         salvarVendedoras, ouvirVendedoras,
         salvarFrete, atualizarFrete, deletarFrete, ouvirTodosFretes,
+        salvarTester, atualizarTester, deletarTester, ouvirTesters, ouvirTodosTesters,
+        salvarInsumos, ouvirInsumos, ouvirTodosInsumos,
+        salvarMovInsumo, ouvirMovInsumos, ouvirTodasMovInsumos,
         garantirCatalogo
     };
 
@@ -555,6 +645,8 @@ const STORE_COLORS = [
 const INITIAL_INVENTORY = [{"id":1,"barcode":"7898464629003","product":"COLHER DE MADEIRA","group":"ACESSORIOS BANHO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":2,"barcode":"7898464628662","product":"ESCOVA COM PEDRA POMES 10,5 X 5,5 X 4 CM","group":"ACESSORIOS BANHO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":3,"barcode":"7898464628709","product":"ESCOVA DE BANHO COM MASSAGEADOR 30 X 7,5 X 5 CM","group":"ACESSORIOS BANHO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":4,"barcode":"7898464628617","product":"ESCOVAO DE MADEIRA P/ BANHO 45,5 X 6,7 X 4,0 CM","group":"ACESSORIOS BANHO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":5,"barcode":"7898464628648","product":"MASSAGEADOR MADEIRA P 14 X 7 X 7 CM","group":"ACESSORIOS BANHO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":6,"barcode":"7899891309070","product":"CREME ACETINADO HIDRATANTE ACUCENA 40 G","group":"ACUCENA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":7,"barcode":"7899891306352","product":"CREME ACETINADO HIDRATANTE CORPORAL ACUCENA 200 G","group":"ACUCENA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":8,"barcode":"7899891306321","product":"DEO COLONIA ACUCENA 100 ML","group":"ACUCENA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":9,"barcode":"7899891313916","product":"DESODORANTE AEROSSOL ANTITRANSPIRANTE ACUCENA 150 ML/G","group":"ACUCENA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":10,"barcode":"7899891306338","product":"GEL DE BANHO ACUCENA 210 G","group":"ACUCENA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":11,"barcode":"7899891309247","product":"KIT ACUCENA","group":"ACUCENA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":12,"barcode":"7899891315859","product":"KIT ACUCENA - SERIE 1","group":"ACUCENA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":13,"barcode":"7899891306345","product":"OLEO DE BANHO ACUCENA 210 ML","group":"ACUCENA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":14,"barcode":"7899891314791","product":"DEO COLONIA ACUCENA ROUGE 100ML","group":"ACUCENA ROUGE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":15,"barcode":"7899891318379","product":"KIT ACUCENA ROUGE","group":"ACUCENA ROUGE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":16,"barcode":"7899891307618","product":"AGUA REFRESCANTE ACONCHEGO 200 ML - AGUAS NATURAIS","group":"AGUAS NATURAIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":17,"barcode":"7899891307632","product":"AGUA REFRESCANTE CONCENTRACAO 200 ML - AGUAS NATURAIS","group":"AGUAS NATURAIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":18,"barcode":"7899891307625","product":"AGUA REFRESCANTE ENERGIA 200 ML - AGUAS NATURAIS","group":"AGUAS NATURAIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":19,"barcode":"7899891307601","product":"AGUA REFRESCANTE RELAXAMENTO 200 ML - AGUAS NATURAIS","group":"AGUAS NATURAIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":20,"barcode":"7899891308967","product":"KIT MINI AGUAS NATURAIS","group":"AGUAS NATURAIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":21,"barcode":"7898464620444","product":"AGUA PERFUMADA PARA ROUPAS ALECRIM 1100 ML","group":"ALECRIM","line":"","price":0,"quantity":0,"minQuantity":3},{"id":22,"barcode":"7898464625272","product":"ESSENCIA CONCENTRADA ALECRIM 30 ML","group":"ALECRIM","line":"","price":0,"quantity":0,"minQuantity":3},{"id":23,"barcode":"7898464629430","product":"ESSENCIA PARA DIFUSOR ALECRIM 210 ML","group":"ALECRIM","line":"","price":0,"quantity":0,"minQuantity":3},{"id":24,"barcode":"7898464620888","product":"PERFUME PARA INTERIORES ALECRIM 1100 ML","group":"ALECRIM","line":"","price":0,"quantity":0,"minQuantity":3},{"id":25,"barcode":"7898464621601","product":"PERFUME PARA INTERIORES ALECRIM 200 ML","group":"ALECRIM","line":"","price":0,"quantity":0,"minQuantity":3},{"id":26,"barcode":"7898464629737","product":"REFIL SABONETE LIQUIDO ALECRIM 500ML","group":"ALECRIM","line":"","price":0,"quantity":0,"minQuantity":3},{"id":27,"barcode":"7899891308622","product":"SABONETE EM BARRA ALECRIM 120 G","group":"ALECRIM","line":"","price":0,"quantity":0,"minQuantity":3},{"id":28,"barcode":"7899891307168","product":"SABONETE LIQUIDO ALECRIM 400 ML","group":"ALECRIM","line":"","price":0,"quantity":0,"minQuantity":3},{"id":29,"barcode":"7898464625791","product":"SABONETE LIQUIDO ALECRIM 500 ML","group":"ALECRIM","line":"","price":0,"quantity":0,"minQuantity":3},{"id":30,"barcode":"7898464620345","product":"AGUA PERFUMADA PARA ROUPAS ALECRIM & CAPIM LIMAO 1000 ML","group":"ALECRIM & CAPIM LIMAO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":31,"barcode":"7899891301937","product":"DIFUSOR DE ESSENCIAS ALECRIM & CAPIM LIMAO 100 ML","group":"ALECRIM & CAPIM LIMAO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":32,"barcode":"7899891303917","product":"ESSENCIA PARA DIFUSOR ALECRIM & CAPIM LIMAO 210 ML","group":"ALECRIM & CAPIM LIMAO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":33,"barcode":"7898464620314","product":"PERFUME PARA INTERIORES ALECRIM & CAPIM LIMAO 500 ML","group":"ALECRIM & CAPIM LIMAO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":34,"barcode":"7898464629249","product":"SABONETE EM BARRA ALECRIM & CAPIM LIMAO 100 G (CX/ 3 UND)","group":"ALECRIM & CAPIM LIMAO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":35,"barcode":"7898464620307","product":"SABONETE LIQUIDO ALECRIM & CAPIM LIMAO 350 ML","group":"ALECRIM & CAPIM LIMAO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":36,"barcode":"7899891317747","product":"DEO PARFUM ALIRA 100 ML","group":"ALIRA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":37,"barcode":"7899891317389","product":"DIFUSOR DE ESSENCIAS AMANE 250 ML","group":"AMANE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":38,"barcode":"7899891317792","product":"ESSENCIA PARA DIFUSOR AMANE 210 ML","group":"AMANE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":39,"barcode":"7899891317396","product":"PERFUME PARA INTERIORES AMANE 100 ML","group":"AMANE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":40,"barcode":"7899891317815","product":"REFIL SABONETE LIQUIDO AMANE 500 ML","group":"AMANE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":41,"barcode":"7899891317402","product":"SABONETE LIQUIDO AMANE 250 ML","group":"AMANE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":42,"barcode":"7899891317419","product":"VELA AROMATICA AMANE 250 G","group":"AMANE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":43,"barcode":"7898464621991","product":"AGUA PERFUMADA PARA ROUPAS AMBAR 1100 ML","group":"AMBAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":44,"barcode":"7898464625302","product":"ESSENCIA CONCENTRADA AMBAR 30 ML","group":"AMBAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":45,"barcode":"7898464629423","product":"ESSENCIA PARA DIFUSOR AMBAR 210 ML","group":"AMBAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":46,"barcode":"7898464620918","product":"PERFUME PARA INTERIORES AMBAR 1100 ML","group":"AMBAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":47,"barcode":"7898464621632","product":"PERFUME PARA INTERIORES AMBAR 200 ML","group":"AMBAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":48,"barcode":"7898464629676","product":"REFIL SABONETE LIQUIDO AMBAR 500ML","group":"AMBAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":49,"barcode":"7899891308639","product":"SABONETE EM BARRA AMBAR 120 G","group":"AMBAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":50,"barcode":"7899891307175","product":"SABONETE LIQUIDO AMBAR 400 ML","group":"AMBAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":51,"barcode":"7898464625807","product":"SABONETE LIQUIDO AMBAR 500 ML","group":"AMBAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":52,"barcode":"7899891318775","product":"DIFUSOR DE ESSENCIAS AMIR SLAMA 250 ML","group":"AMIR SLAMA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":53,"barcode":"7899891318980","product":"ESSENCIA PARA DIFUSOR AMIR SLAMA 210 ML","group":"AMIR SLAMA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":54,"barcode":"7899891318768","product":"PERFUME PARA INTERIORES AMIR SLAMA 100 ML","group":"AMIR SLAMA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":55,"barcode":"7899891319031","product":"SABONETE EM BARRA AMIR SLAMA 100 G (CX. C/ 3 UN.)","group":"AMIR SLAMA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":56,"barcode":"7899891318782","product":"SABONETE LIQUIDO AMIR SLAMA 250 ML","group":"AMIR SLAMA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":57,"barcode":"7899891318799","product":"VELA AROMATICA AMIR SLAMA 100 G","group":"AMIR SLAMA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":58,"barcode":"7898464625739","product":"AGUA PERFUMADA PARA ROUPAS AMORA & PITANGA 1000 ML","group":"AMORA & PITANGA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":59,"barcode":"7899891301920","product":"DIFUSOR DE ESSENCIAS AMORA & PITANGA 100 ML","group":"AMORA & PITANGA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":60,"barcode":"7899891303924","product":"ESSENCIA PARA DIFUSOR AMORA & PITANGA 210 ML","group":"AMORA & PITANGA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":61,"barcode":"7898464625715","product":"PERFUME PARA INTERIORES AMORA & PITANGA 500ML","group":"AMORA & PITANGA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":62,"barcode":"7898464629263","product":"SABONETE EM BARRA AMORA & PITANGA 100 G (CX/3 UNI)","group":"AMORA & PITANGA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":63,"barcode":"7898464625722","product":"SABONETE LIQUIDO AMORA & PITANGA 350 ML","group":"AMORA & PITANGA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":64,"barcode":"7899891305348","product":"ALCOOL EM GEL AMORA SILVESTRE 55 G - AUTOCUIDADO","group":"AMORA SILVESTRE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":65,"barcode":"7898464620277","product":"EMULSAO SUAVIZANTE MAOS AMORA SILVESTRE 50G AUTOCUIDADO","group":"AMORA SILVESTRE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":66,"barcode":"7899891317624","product":"AMOSTRA AGUA REFRESCANTE ENERGIA 3 ML - AGUAS NATURAIS","group":"AMOSTRA GRATIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":67,"barcode":"9000001161763","product":"AMOSTRA DEO COLONIA ACUCENA 3 ML","group":"AMOSTRA GRATIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":68,"barcode":"9000001161770","product":"AMOSTRA DEO COLONIA ACUCENA ROUGE 3 ML","group":"AMOSTRA GRATIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":69,"barcode":"9000001161169","product":"AMOSTRA DEO COLONIA BONISSIMO URBAN 3 ML","group":"AMOSTRA GRATIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":70,"barcode":"7899891319468","product":"AMOSTRA DEO COLONIA CAMELIA 3 ML - RELICARIO","group":"AMOSTRA GRATIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":71,"barcode":"9000001160728","product":"AMOSTRA DEO PARFUM GIGI LAZULI 3 ML","group":"AMOSTRA GRATIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":72,"barcode":"9000001161015","product":"AMOSTRA DEO PARFUM SELETO 3 ML","group":"AMOSTRA GRATIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":73,"barcode":"9000001161053","product":"AMOSTRA DEO PARFUM SELETO HERBO 3 ML","group":"AMOSTRA GRATIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":74,"barcode":"9000001161022","product":"AMOSTRA DEO PARFUM SELETO OCEAN 3 ML","group":"AMOSTRA GRATIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":75,"barcode":"7899891317518","product":"AMOSTRA DEO PARFUM SERENA 3 ML","group":"AMOSTRA GRATIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":76,"barcode":"7899891306307","product":"SABONETE EM BARRA 2 EM 1 SELETO 30 G","group":"AMOSTRA GRATIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":77,"barcode":"7899891303719","product":"SABONETE EM BARRA BONISSIMO BLACK 30 G","group":"AMOSTRA GRATIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":78,"barcode":"7899891303757","product":"SABONETE EM BARRA CHA VERDE & ERVAS 30 G","group":"AMOSTRA GRATIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":79,"barcode":"7899891303740","product":"SABONETE EM BARRA FLOR DE CEREJEIRA 30 G","group":"AMOSTRA GRATIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":80,"barcode":"7899891307359","product":"SABONETE EM BARRA GIGI 30 G","group":"AMOSTRA GRATIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":81,"barcode":"7899891303764","product":"SABONETE EM BARRA LAVANDA 30 G","group":"AMOSTRA GRATIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":82,"barcode":"7899891303726","product":"SABONETE EM BARRA MARINA 30 G","group":"AMOSTRA GRATIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":83,"barcode":"7899891319376","product":"SACHE GRATIS SERUM HIDRANTANTE P/ MAOS CARAMBOLA 15 G","group":"AMOSTRA GRATIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":84,"barcode":"7899891319437","product":"SACHE GRATIS SERUM HIDRATANTE P/ MAOS COCO 15 G","group":"AMOSTRA GRATIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":85,"barcode":"7899891319420","product":"SACHE GRATIS SERUM HIDRATANTE P/ MAOS FIGO 15 G","group":"AMOSTRA GRATIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":86,"barcode":"7898464629324","product":"AGUA DE COLONIA APOENA 100 ML","group":"APOENA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":87,"barcode":"7899891315545","product":"DIFUSOR DE ESSENCIAS APOGEU 420 ML","group":"APOGEU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":88,"barcode":"7899891317785","product":"ESSENCIA PARA DIFUSOR APOGEU 210 ML","group":"APOGEU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":89,"barcode":"7899891315538","product":"PERFUME PARA INTERIORES APOGEU 230 ML","group":"APOGEU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":90,"barcode":"7899891317808","product":"REFIL SABONETE LIQUIDO APOGEU 500 ML","group":"APOGEU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":91,"barcode":"7899891315552","product":"SABONETE LIQUIDO APOGEU 500 ML","group":"APOGEU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":92,"barcode":"7899891315569","product":"VELA AROMATICA APOGEU 190G","group":"APOGEU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":93,"barcode":"7899891314487","product":"DIFUSOR DE ESSENCIAS AQUAMARE 350 ML","group":"AQUAMARE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":94,"barcode":"7899891314500","product":"PERFUME PARA INTERIORES AQUAMARE 150 ML","group":"AQUAMARE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":95,"barcode":"7899891314494","product":"SABONETE LIQUIDO AQUAMARE 350 ML","group":"AQUAMARE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":96,"barcode":"7899891314517","product":"VELA AROMATICA AQUAMARE 160 G","group":"AQUAMARE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":97,"barcode":"7899891314814","product":"DIFUSOR DE ESSENCIAS AVADORE 200 ML","group":"AVADORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":98,"barcode":"7898464629041","product":"ESSENCIA PARA DIFUSOR AVADORE 210 ML","group":"AVADORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":99,"barcode":"7899891314838","product":"PERFUME PARA INTERIORES AVADORE 110 ML","group":"AVADORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":100,"barcode":"7899891318829","product":"REFIL SABONETE LIQUIDO AVADORE 500 ML","group":"AVADORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":101,"barcode":"7899891314807","product":"SABONETE LIQUIDO AVADORE 310 ML","group":"AVADORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":102,"barcode":"7898464625920","product":"VELA AROMATICA AVADORE 50 G","group":"AVADORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":103,"barcode":"7899891314821","product":"VELA AROMATICA AVADORE 65 G","group":"AVADORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":104,"barcode":"7899891318348","product":"DEO PARFUM BAKARI 100 ML","group":"BAKARI","line":"","price":0,"quantity":0,"minQuantity":3},{"id":105,"barcode":"7899891305539","product":"BALDE CINZA METAL AVATIM G","group":"BALDES","line":"","price":0,"quantity":0,"minQuantity":3},{"id":106,"barcode":"7899891305522","product":"BALDE CINZA METAL AVATIM M","group":"BALDES","line":"","price":0,"quantity":0,"minQuantity":3},{"id":107,"barcode":"7899891305515","product":"BALDE CINZA METAL AVATIM P","group":"BALDES","line":"","price":0,"quantity":0,"minQuantity":3},{"id":108,"barcode":"7899891308844","product":"AGUA PERFUMADA PARA ROUPAS BAMBU 1100 ML","group":"BAMBU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":109,"barcode":"7899891308875","product":"ESSENCIA CONCENTRADA BAMBU 30 ML","group":"BAMBU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":110,"barcode":"7899891308882","product":"ESSENCIA PARA DIFUSOR BAMBU 210 ML","group":"BAMBU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":111,"barcode":"7899891318720","product":"GEL ANTISSEPTICO PARA AS MAOS BAMBU 320 G","group":"BAMBU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":112,"barcode":"7899891308837","product":"PERFUME PARA INTERIORES BAMBU 1100 ML","group":"BAMBU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":113,"barcode":"7899891308820","product":"PERFUME PARA INTERIORES BAMBU 200 ML","group":"BAMBU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":114,"barcode":"7899891308899","product":"REFIL SABONETE LIQUIDO BAMBU 500 ML","group":"BAMBU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":115,"barcode":"7898464629942","product":"SABONETE EM BARRA BAMBU 120 G","group":"BAMBU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":116,"barcode":"7899891308851","product":"SABONETE LIQUIDO BAMBU 400 ML","group":"BAMBU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":117,"barcode":"7899891308868","product":"SABONETE LIQUIDO BAMBU 500 ML","group":"BAMBU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":118,"barcode":"7898464628600","product":"BUCHA VEGETAL REDONDA","group":"BANHO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":119,"barcode":"7898464628594","product":"TIARA ECO","group":"BANHO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":120,"barcode":"7898464629928","product":"TOUCA ECO","group":"BANHO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":121,"barcode":"7899891315972","product":"DIFUSOR DE ESSENCIAS BERGAMO 100 ML","group":"BERGAMO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":122,"barcode":"7899891318744","product":"ESSENCIA PARA DIFUSOR BERGAMO 210 ML","group":"BERGAMO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":123,"barcode":"7899891319291","product":"KIT BERGAMO","group":"BERGAMO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":124,"barcode":"7899891315965","product":"PERFUME PARA INTERIORES BERGAMO 90 ML","group":"BERGAMO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":125,"barcode":"7899891315989","product":"VELA AROMATICA BERGAMO 50 G","group":"BERGAMO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":126,"barcode":"7899891308325","product":"BONISSIMO BALM - POS BARBA 60 G","group":"BONISSIMO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":127,"barcode":"7899891304259","product":"BONISSIMO BEARD - SHAMPOO PARA BARBA 140 ML","group":"BONISSIMO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":128,"barcode":"7898464628426","product":"BONISSIMO SHAVE - CREME PARA BARBEAR 80 G","group":"BONISSIMO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":129,"barcode":"7899891304273","product":"BONISSIMO SHAVING - GEL PARA BARBEAR 100 G","group":"BONISSIMO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":130,"barcode":"7899891306130","product":"DEO COLONIA BONISSIMO 100 ML","group":"BONISSIMO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":131,"barcode":"7899891317877","product":"DEO COLONIA BONISSIMO 100 ML - SERIE 1","group":"BONISSIMO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":132,"barcode":"7898464629843","product":"SABONETE EM BARRA BONISSIMO 100 G (CX/3 UNID)","group":"BONISSIMO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":133,"barcode":"7899891306123","product":"DEO COLONIA BONISSIMO BLACK 100 ML","group":"BONISSIMO BLACK","line":"","price":0,"quantity":0,"minQuantity":3},{"id":134,"barcode":"7899891317884","product":"DEO COLONIA BONISSIMO BLACK 100 ML - SERIE 1","group":"BONISSIMO BLACK","line":"","price":0,"quantity":0,"minQuantity":3},{"id":135,"barcode":"7899891301401","product":"DESODORANTE AEROSOL ANTITRANSPIRANTE BONISSIMO BLACK 150 ML","group":"BONISSIMO BLACK","line":"","price":0,"quantity":0,"minQuantity":3},{"id":136,"barcode":"7899891301425","product":"SABONETE EM BARRA BONISSIMO BLACK (CX. C/ 3 UND.)","group":"BONISSIMO BLACK","line":"","price":0,"quantity":0,"minQuantity":3},{"id":137,"barcode":"7899891301418","product":"SHAMPOO BONISSIMO BLACK 180 ML","group":"BONISSIMO BLACK","line":"","price":0,"quantity":0,"minQuantity":3},{"id":138,"barcode":"7899891317891","product":"DEO COLONIA BONISSIMO URBAN 100 ML - SERIE 1","group":"BONISSIMO URBAN","line":"","price":0,"quantity":0,"minQuantity":3},{"id":139,"barcode":"7899891314708","product":"DEO COLONIA BONISSIMO URBAN 100ML","group":"BONISSIMO URBAN","line":"","price":0,"quantity":0,"minQuantity":3},{"id":140,"barcode":"7899891317730","product":"AMOSTRA DEO PARFUM ALIRA 2 ML","group":"BRINDES","line":"","price":0,"quantity":0,"minQuantity":3},{"id":141,"barcode":"7899891318355","product":"AMOSTRA DEO PARFUM BAKARI 2 ML","group":"BRINDES","line":"","price":0,"quantity":0,"minQuantity":3},{"id":142,"barcode":"7899891318386","product":"AMOSTRA DEO PARFUM IRIS ROSE 2 ML","group":"BRINDES","line":"","price":0,"quantity":0,"minQuantity":3},{"id":143,"barcode":"7899891318454","product":"AMOSTRA DEO PARFUM SERENA INTENSE 2 ML","group":"BRINDES","line":"","price":0,"quantity":0,"minQuantity":3},{"id":144,"barcode":"7899891315385","product":"ACUCAR EM OLEO CACAU E UCUUBA 500 G","group":"CACAU & UCUUBA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":145,"barcode":"7899891301227","product":"CREME DE MANTEIGAS CACAU & UCUUBA 200 G","group":"CACAU & UCUUBA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":146,"barcode":"7899891315408","product":"KIT BANHO DE BEM ESTAR - CACAU & UCUUBA","group":"CACAU & UCUUBA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":147,"barcode":"7899891315606","product":"REFIL ACUCAR EM OLEO CACAU & UCUUBA 500 G","group":"CACAU & UCUUBA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":148,"barcode":"7899891314050","product":"SABONETE EM BARRA CACAU & UCUUBA 80 G (CX 2 UND)","group":"CACAU & UCUUBA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":149,"barcode":"7899891315361","product":"SABONETE EM OLEO CACAU & UCUUBA 210ML","group":"CACAU & UCUUBA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":150,"barcode":"7899891315392","product":"SABONETE LIQUIDO ESFOLIANTE CACAU & UCUUBA 180ML","group":"CACAU & UCUUBA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":151,"barcode":"7899891319451","product":"DEO COLONIA CAMELIA 100 ML - RELICARIO","group":"CAMELIA RELICARIO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":152,"barcode":"7898464622028","product":"AGUA PERFUMADA PARA ROUPAS CASCAS & FOLHAS 1100 ML","group":"CASCAS & FOLHAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":153,"barcode":"7898464623315","product":"ESSENCIA CONCENTRADA CASCAS & FOLHAS 30 ML","group":"CASCAS & FOLHAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":154,"barcode":"7898464629089","product":"ESSENCIA PARA DIFUSOR CASCAS & FOLHAS 210 ML","group":"CASCAS & FOLHAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":155,"barcode":"7898464620956","product":"PERFUME PARA INTERIORES CASCAS & FOLHAS 1100 ML","group":"CASCAS & FOLHAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":156,"barcode":"7898464621670","product":"PERFUME PARA INTERIORES CASCAS & FOLHAS 200 ML","group":"CASCAS & FOLHAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":157,"barcode":"7898464629591","product":"REFIL SABONETE LIQUIDO CASCAS & FOLHAS 500 ML","group":"CASCAS & FOLHAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":158,"barcode":"7899891308646","product":"SABONETE EM BARRA CASCAS & FOLHAS 120 G","group":"CASCAS & FOLHAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":159,"barcode":"7899891307151","product":"SABONETE LIQUIDO CASCAS & FOLHAS 400 ML","group":"CASCAS & FOLHAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":160,"barcode":"7898464625814","product":"SABONETE LIQUIDO CASCAS & FOLHAS 500 ML","group":"CASCAS & FOLHAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":161,"barcode":"7899891303283","product":"BANHO REFRESCANTE CHA VERDE & ERVAS 300 ML - DIA DIA","group":"CHA VERDE & ERVAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":162,"barcode":"7899891318089","product":"EMULSAO HIDRATANTE CHA VERDE & ERVAS 200 ML - DIA DIA","group":"CHA VERDE & ERVAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":163,"barcode":"7899891303344","product":"EMULSAO HIDRATANTE CHA VERDE & ERVAS 300 ML - DIA DIA","group":"CHA VERDE & ERVAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":164,"barcode":"7899891318096","product":"GEL DE BANHO CHA VERDE & ERVAS 200 G - DIA DIA","group":"CHA VERDE & ERVAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":165,"barcode":"7899891303405","product":"GEL DE BANHO CHA VERDE & ERVAS 300 G - DIA DIA","group":"CHA VERDE & ERVAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":166,"barcode":"7899891315064","product":"KIT BANHO REFRESCANTE DIA DIA CHA VERDE E ERVAS - SERIE 2","group":"CHA VERDE & ERVAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":167,"barcode":"7899891305225","product":"KIT DIA DIA CHA VERDE & ERVAS","group":"CHA VERDE & ERVAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":168,"barcode":"7899891303450","product":"SABONETE EM BARRA CHA VERDE & ERVAS 200 G - DIA DIA","group":"CHA VERDE & ERVAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":169,"barcode":"7899891314074","product":"CHEIROS DA BAHIA - SERIE 1 - CX COM 5 SABONETES","group":"CHEIROS DA BAHIA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":170,"barcode":"7899891314128","product":"SABONETE EM BARRA BRISA COSTEIRA 120 G","group":"CHEIROS DA BAHIA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":171,"barcode":"7899891314098","product":"SABONETE EM BARRA CASTANHA DO CERRADO 120 G","group":"CHEIROS DA BAHIA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":172,"barcode":"7899891314081","product":"SABONETE EM BARRA FLOR DO SERTAO 120 G","group":"CHEIROS DA BAHIA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":173,"barcode":"7899891314104","product":"SABONETE EM BARRA PROFUNDO OCEANO 120 G","group":"CHEIROS DA BAHIA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":174,"barcode":"7899891314111","product":"SABONETE EM BARRA RIQUEZAS DA MATA 120 G","group":"CHEIROS DA BAHIA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":175,"barcode":"7899891317914","product":"KIT MINI CLASSICOS","group":"CLASSICOS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":176,"barcode":"7899891312438","product":"COLHER DE MADEIRA (PCT C/ 10)","group":"COLHER DE MADEIRA E TIGELA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":177,"barcode":"7899891315804","product":"ACUCAR EM OLEO COPAIBA & ANDIROBA 500 G - SERIE 1","group":"COPAIBA & ANDIROBA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":178,"barcode":"7899891302132","product":"ACUCAR EM OLEO COPAIBA E ANDIROBA 500 G","group":"COPAIBA & ANDIROBA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":179,"barcode":"7899891302149","product":"KIT BANHO DE BEM ESTAR - COPAIBA E ANDIROBA","group":"COPAIBA & ANDIROBA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":180,"barcode":"7899891315774","product":"KIT BANHO DE BEM ESTAR COPAIBA E ANDIROBA - SERIE 1","group":"COPAIBA & ANDIROBA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":181,"barcode":"7899891313978","product":"OLEO DE BANHO EMULSIONANTE COPAIBA & ANDIROBA 210 ML","group":"COPAIBA & ANDIROBA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":182,"barcode":"7899891315750","product":"OLEO EM CREME COPAIBA & ANDIROBA 230G","group":"COPAIBA & ANDIROBA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":183,"barcode":"7899891300831","product":"OLEO EM CREME COPAIBA E ANDIROBA 300 G","group":"COPAIBA & ANDIROBA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":184,"barcode":"7899891307472","product":"REFIL ACUCAR EM OLEO COPAIBA & ANDIROBA 500 G","group":"COPAIBA & ANDIROBA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":185,"barcode":"7899891314043","product":"SABONETE EM BARRA COPAIBA & ANDIROBA 80 G (CX 2 UND)","group":"COPAIBA & ANDIROBA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":186,"barcode":"7899891315835","product":"SABONETE EM OLEO COPAIBA & ANDIROBA 210 ML","group":"COPAIBA & ANDIROBA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":187,"barcode":"7899891302163","product":"SABONETE LIQUIDO ESFOLIANTE COPAIBA & ANDIROBA 180 ML","group":"COPAIBA & ANDIROBA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":188,"barcode":"7899891305362","product":"ALCOOL EM GEL CUPUACU 55 G - AUTOCUIDADO","group":"CUPUACU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":189,"barcode":"7898464620260","product":"EMULSAO SUAVIZANTE MAOS CUPUACU 50G AUTOCUIDADO","group":"CUPUACU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":190,"barcode":"7899891312537","product":"KIT AUTOCUIDADO CUPUACU - SERIE 1","group":"CUPUACU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":191,"barcode":"7899891300435","product":"ACUCAR EM OLEO CUPUACU & CASTANHA DO BRASIL 500 G","group":"CUPUACU & CASTANHA DO BRASIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":192,"barcode":"7899891315798","product":"ACUCAR EM OLEO CUPUACU E CASTANHA DO BRASIL 500 G - SERIE 1","group":"CUPUACU & CASTANHA DO BRASIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":193,"barcode":"7899891315767","product":"KIT BANHO DE BEM ESTAR - CUPUACU CASTANHA DO BRASIL SERIE1","group":"CUPUACU & CASTANHA DO BRASIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":194,"barcode":"7898464628983","product":"KIT BANHO DE BEM ESTAR - CUPUACU E CASTANHA DO BRASIL","group":"CUPUACU & CASTANHA DO BRASIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":195,"barcode":"7899891313961","product":"OLEO DE BANHO EMULSIONANTE CUPUACU & CASTANHA DO BRASIL 210","group":"CUPUACU & CASTANHA DO BRASIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":196,"barcode":"7899891315743","product":"OLEO EM CREME CUPUACU & CASTANHA DO BRASIL 230 G","group":"CUPUACU & CASTANHA DO BRASIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":197,"barcode":"7899891300077","product":"OLEO EM CREME CUPUACU & CASTANHA DO BRASIL 300 G","group":"CUPUACU & CASTANHA DO BRASIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":198,"barcode":"7899891307465","product":"REFIL ACUCAR EM OLEO CUPUACU & CASTANHA 500 G","group":"CUPUACU & CASTANHA DO BRASIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":199,"barcode":"7899891315828","product":"REFIL ACUCAR EM OLEO CUPUAÃ‡U & CASTANHA 500 G - SERIE 1","group":"CUPUACU & CASTANHA DO BRASIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":200,"barcode":"7899891314036","product":"SABONETE EM BARRA CUPUACU & CASTANHA DO BRASIL 80 G (CX 2 UN","group":"CUPUACU & CASTANHA DO BRASIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":201,"barcode":"7899891315842","product":"SABONETE EM OLEO CUPUACU & CASTANHA DO BRASIL 210 ML","group":"CUPUACU & CASTANHA DO BRASIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":202,"barcode":"7898464625609","product":"SABONETE LIQUIDO ESFOLIANTE CUPUACU & CASTANHA DO BRASIL 180","group":"CUPUACU & CASTANHA DO BRASIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":203,"barcode":"7898464622066","product":"AGUA PERFUMADA PARA ROUPAS CURUMIM 1100 ML","group":"CURUMIM","line":"","price":0,"quantity":0,"minQuantity":3},{"id":204,"barcode":"7898464625319","product":"ESSENCIA CONCENTRADA CURUMIM 30 ML","group":"CURUMIM","line":"","price":0,"quantity":0,"minQuantity":3},{"id":205,"barcode":"7898464620994","product":"PERFUME PARA INTERIORES CURUMIM 1100 ML","group":"CURUMIM","line":"","price":0,"quantity":0,"minQuantity":3},{"id":206,"barcode":"7898464621717","product":"PERFUME PARA INTERIORES CURUMIM 200 ML","group":"CURUMIM","line":"","price":0,"quantity":0,"minQuantity":3},{"id":207,"barcode":"7898464629553","product":"REFIL SABONETE LIQUIDO CURUMIM 500ML","group":"CURUMIM","line":"","price":0,"quantity":0,"minQuantity":3},{"id":208,"barcode":"7899891307229","product":"SABONETE LIQUIDO CURUMIM 400 ML","group":"CURUMIM","line":"","price":0,"quantity":0,"minQuantity":3},{"id":209,"barcode":"7899891312155","product":"CONDICIONADOR CURUMIM 200 ML","group":"CURUMIM - INFANTIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":210,"barcode":"7899891312179","product":"DEO COLONIA CURUMIM 100 ML","group":"CURUMIM - INFANTIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":211,"barcode":"7899891312452","product":"REFIL CONDICIONADOR CURUMIM 200 ML","group":"CURUMIM - INFANTIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":212,"barcode":"7899891312469","product":"REFIL SABONETE LIQUIDO CURUMIM 200 ML","group":"CURUMIM - INFANTIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":213,"barcode":"7899891312445","product":"REFIL XAMPU CURUMIM 200 ML","group":"CURUMIM - INFANTIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":214,"barcode":"7899891312476","product":"SABONETE EM BARRA CURUMIM 100 G","group":"CURUMIM - INFANTIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":215,"barcode":"7899891312162","product":"SABONETE LIQUIDO CURUMIM 200 ML","group":"CURUMIM - INFANTIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":216,"barcode":"7899891312148","product":"XAMPU CURUMIM 200 ML","group":"CURUMIM - INFANTIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":217,"barcode":"7899891314920","product":"ESPUMA DE LIMPEZA MAOS E CORPO CARAMBOLA 500 ML - DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":218,"barcode":"7899891314937","product":"ESPUMA DE LIMPEZA MAOS E CORPO COCO 500 ML - DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":219,"barcode":"7899891314906","product":"ESPUMA DE LIMPEZA MAOS E CORPO FIGO 500 ML - DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":220,"barcode":"7899891314913","product":"ESPUMA DE LIMPEZA MAOS E CORPO JABUTICABA 500 ML - DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":221,"barcode":"7899891314944","product":"ESPUMA DE LIMPEZA MAOS E CORPO MARACUJA 500 ML - DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":222,"barcode":"7899891314951","product":"ESPUMA DE LIMPEZA MAOS E CORPO SERIGUELA 500 ML - DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":223,"barcode":"7899891314722","product":"GEL ANTISSEPTICO PARA AS MAOS CARAMBOLA 55 G - DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":224,"barcode":"7899891314760","product":"GEL ANTISSEPTICO PARA AS MAOS COCO 55 G - DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":225,"barcode":"7899891314739","product":"GEL ANTISSEPTICO PARA AS MAOS FIGO 55 G - DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":226,"barcode":"7899891314753","product":"GEL ANTISSEPTICO PARA AS MAOS JABUTICABA 55 G - DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":227,"barcode":"7899891314746","product":"GEL ANTISSEPTICO PARA AS MAOS MARACUJA 55 G - DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":228,"barcode":"7899891314777","product":"GEL ANTISSEPTICO PARA AS MAOS SERIGUELA 55 G - DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":229,"barcode":"7899891314890","product":"HIDRATANTE CORPORAL BIFASICO CARAMBOLA 300 G - DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":230,"barcode":"7899891314869","product":"HIDRATANTE CORPORAL BIFASICO COCO 300 G - DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":231,"barcode":"7899891314845","product":"HIDRATANTE CORPORAL BIFASICO FIGO 300 G - DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":232,"barcode":"7899891314852","product":"HIDRATANTE CORPORAL BIFASICO JABUTICABA 300 G -DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":233,"barcode":"7899891314876","product":"HIDRATANTE CORPORAL BIFASICO MARACUJA 300 G -DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":234,"barcode":"7899891314883","product":"HIDRATANTE CORPORAL BIFASICO SERIGUELA 300 G - DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":235,"barcode":"7899891319154","product":"KIT DESFRUTAR - AMORA","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":236,"barcode":"7899891314203","product":"KIT DESFRUTAR - CARAMBOLA","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":237,"barcode":"7899891319123","product":"KIT DESFRUTAR - CARAMBOLA SERIE 1","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":238,"barcode":"7899891318034","product":"KIT DESFRUTAR - CEREJA","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":239,"barcode":"7899891314210","product":"KIT DESFRUTAR - COCO","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":240,"barcode":"7899891319161","product":"KIT DESFRUTAR - CUPUACU","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":241,"barcode":"7899891314180","product":"KIT DESFRUTAR - FIGO","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":242,"barcode":"7899891314197","product":"KIT DESFRUTAR - JABUTICABA","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":243,"barcode":"7899891319116","product":"KIT DESFRUTAR - JABUTICABA SERIE 1","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":244,"barcode":"7899891314227","product":"KIT DESFRUTAR - MARACUJA","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":245,"barcode":"7899891319130","product":"KIT DESFRUTAR - MARACUJA SERIE 1","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":246,"barcode":"7899891314234","product":"KIT DESFRUTAR - SERIGUELA","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":247,"barcode":"7899891319147","product":"KIT DESFRUTAR - SERIGUELA SERIE 1","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":248,"barcode":"7899891315309","product":"SABONETE EM BARRA GLICERINADO FIGO 90G - DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":249,"barcode":"7899891315323","product":"SABONETE EM BARRA GLICERINADO CARAMBOLA 90G - DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":250,"barcode":"7899891315330","product":"SABONETE EM BARRA GLICERINADO COCO 90G - DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":251,"barcode":"7899891315347","product":"SABONETE EM BARRA GLICERINADO JABUTICABA 90G - DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":252,"barcode":"7899891315354","product":"SABONETE EM BARRA GLICERINADO MARACUJA 90G - DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":253,"barcode":"7899891315316","product":"SABONETE EM BARRA GLICERINADO SERIGUELA 90G - DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":254,"barcode":"7899891314425","product":"SERUM NUTRITIVO PARA AS MAOS CARAMBOLA 50 G - DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":255,"barcode":"7899891314449","product":"SERUM NUTRITIVO PARA AS MAOS COCO 50 G - DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":256,"barcode":"7899891314418","product":"SERUM NUTRITIVO PARA AS MAOS FIGO 50 G - DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":257,"barcode":"7899891314456","product":"SERUM NUTRITIVO PARA AS MAOS JABUTICABA 50 G -DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":258,"barcode":"7899891314463","product":"SERUM NUTRITIVO PARA AS MAOS MARACUJA 50 G - DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":259,"barcode":"7899891314432","product":"SERUM NUTRITIVO PARA AS MAOS SERIGUELA 50 G -DESFRUTAR","group":"DESFRUTAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":260,"barcode":"7899891305393","product":"DIFUSOR AQUECIDO A VELA","group":"DIFUSOR A VELA E REFIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":261,"barcode":"7899891307779","product":"VELAS PARA DIFUSOR AQUECIDO (CX COM 2 UNID)","group":"DIFUSOR A VELA E REFIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":262,"barcode":"7898464625234","product":"BOLSA BAG","group":"ECOBAGS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":263,"barcode":"7899891315958","product":"CAIXA PARA PRESENTE G - CONJ. C/ 25","group":"EMBALAGENS PARA PRESENTE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":264,"barcode":"7899891315941","product":"CAIXA PARA PRESENTE P - CONJ. C/ 25","group":"EMBALAGENS PARA PRESENTE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":265,"barcode":"7899891314289","product":"CESTA VERDE PARA PRESENTE (PCT. C/10)","group":"EMBALAGENS PARA PRESENTE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":266,"barcode":"7899891314319","product":"ENVELOPE LARANJA PARA PRESENTE (PCT. C/10)","group":"EMBALAGENS PARA PRESENTE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":267,"barcode":"7899891314302","product":"ENVELOPE VERDE PARA PRESENTE (PCT. C/10)","group":"EMBALAGENS PARA PRESENTE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":268,"barcode":"7899891315156","product":"KIT ESCARLATE","group":"ESCARLATE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":269,"barcode":"7899891302705","product":"PROVENCE 25ML PERSONALIZADO","group":"EXCLUSIVIDADES","line":"","price":0,"quantity":0,"minQuantity":3},{"id":270,"barcode":"7898464628907","product":"FITA CETIM DOURADA 22MM C/ LOGO AVATIM (ROLO 100M)","group":"FITAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":271,"barcode":"7898464622080","product":"AGUA PERFUMADA PARA ROUPAS FLOR DE ALGODAO 1100 ML","group":"FLOR DE ALGODAO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":272,"barcode":"7898464623322","product":"ESSENCIA CONCENTRADA FLOR DE ALGODAO 30 ML","group":"FLOR DE ALGODAO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":273,"barcode":"7898464629065","product":"ESSENCIA PARA DIFUSOR FLOR DE ALGODAO 210 ML","group":"FLOR DE ALGODAO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":274,"barcode":"7898464621014","product":"PERFUME PARA INTERIORES FLOR DE ALGODAO 1100 ML","group":"FLOR DE ALGODAO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":275,"barcode":"7898464621731","product":"PERFUME PARA INTERIORES FLOR DE ALGODAO 200 ML","group":"FLOR DE ALGODAO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":276,"barcode":"7898464629515","product":"REFIL SABONETE LIQUIDO FLOR DE ALGODAO 500ML","group":"FLOR DE ALGODAO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":277,"barcode":"7899891308653","product":"SABONETE EM BARRA FLOR DE ALGODAO 120 G","group":"FLOR DE ALGODAO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":278,"barcode":"7899891307199","product":"SABONETE LIQUIDO FLOR DE ALGODAO 400 ML","group":"FLOR DE ALGODAO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":279,"barcode":"7898464625838","product":"SABONETE LIQUIDO FLOR DE ALGODAO 500 ML","group":"FLOR DE ALGODAO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":280,"barcode":"7899891303252","product":"BANHO REFRESCANTE FLOR DE CEREJEIRA 300 ML - DIA DIA","group":"FLOR DE CEREJEIRA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":281,"barcode":"7899891318102","product":"EMULSAO HIDRATANTE FLOR DE CEREJEIRA 200 G - DIA DIA","group":"FLOR DE CEREJEIRA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":282,"barcode":"7898464627672","product":"EMULSAO HIDRATANTE FLOR DE CEREJEIRA 300 G","group":"FLOR DE CEREJEIRA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":283,"barcode":"7899891303313","product":"EMULSAO HIDRATANTE FLOR DE CEREJEIRA 300 ML - DIA DIA","group":"FLOR DE CEREJEIRA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":284,"barcode":"7899891318119","product":"GEL DE BANHO FLOR DE CEREJEIRA 200 G - DIA DIA","group":"FLOR DE CEREJEIRA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":285,"barcode":"7899891303375","product":"GEL DE BANHO FLOR DE CEREJEIRA 300 G - DIA DIA","group":"FLOR DE CEREJEIRA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":286,"barcode":"7899891315088","product":"KIT BANHO REFRESCANTE DIA DIA FLOR DE CEREJEIRA - SERIE 2","group":"FLOR DE CEREJEIRA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":287,"barcode":"7899891305195","product":"KIT DIA DIA FLOR DE CEREJEIRA","group":"FLOR DE CEREJEIRA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":288,"barcode":"7899891303429","product":"SABONETE EM BARRA FLOR DE CEREJEIRA 200 G - DIA DIA","group":"FLOR DE CEREJEIRA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":289,"barcode":"7899891306536","product":"BASE DE MADEIRA ESCURA PARA FRASCO DIFUSOR","group":"FRASCOS DIFUSORES E DISPENSER","line":"","price":0,"quantity":0,"minQuantity":3},{"id":290,"barcode":"7899891306529","product":"BASE DE MADEIRA NATURAL PARA FRASCO DIFUSOR","group":"FRASCOS DIFUSORES E DISPENSER","line":"","price":0,"quantity":0,"minQuantity":3},{"id":291,"barcode":"7899891306970","product":"FRASCO AMBAR PARA DIFUSOR AVATIM 150 ML","group":"FRASCOS DIFUSORES E DISPENSER","line":"","price":0,"quantity":0,"minQuantity":3},{"id":292,"barcode":"7899891306987","product":"FRASCO AMBAR PARA DIFUSOR AVATIM 250 ML","group":"FRASCOS DIFUSORES E DISPENSER","line":"","price":0,"quantity":0,"minQuantity":3},{"id":293,"barcode":"7899891306994","product":"FRASCO AMBAR PARA DIFUSOR AVATIM 500 ML","group":"FRASCOS DIFUSORES E DISPENSER","line":"","price":0,"quantity":0,"minQuantity":3},{"id":294,"barcode":"7899891305331","product":"FRASCO CRISTAL PARA DIFUSOR AVATIM 150 ML","group":"FRASCOS DIFUSORES E DISPENSER","line":"","price":0,"quantity":0,"minQuantity":3},{"id":295,"barcode":"7899891305287","product":"FRASCO CRISTAL PARA DIFUSOR AVATIM 250 ML","group":"FRASCOS DIFUSORES E DISPENSER","line":"","price":0,"quantity":0,"minQuantity":3},{"id":296,"barcode":"7899891305386","product":"FRASCO CRISTAL PARA DIFUSOR AVATIM 500 ML","group":"FRASCOS DIFUSORES E DISPENSER","line":"","price":0,"quantity":0,"minQuantity":3},{"id":297,"barcode":"7899891306949","product":"FRASCO VERDE PARA DIFUSOR AVATIM 150 ML","group":"FRASCOS DIFUSORES E DISPENSER","line":"","price":0,"quantity":0,"minQuantity":3},{"id":298,"barcode":"7899891306956","product":"FRASCO VERDE PARA DIFUSOR AVATIM 250 ML","group":"FRASCOS DIFUSORES E DISPENSER","line":"","price":0,"quantity":0,"minQuantity":3},{"id":299,"barcode":"7899891306963","product":"FRASCO VERDE PARA DIFUSOR AVATIM 500 ML","group":"FRASCOS DIFUSORES E DISPENSER","line":"","price":0,"quantity":0,"minQuantity":3},{"id":300,"barcode":"7899891306437","product":"CREME ACETINADO HIDRATANTE CORPORAL GIGI 200 G","group":"GIGI","line":"","price":0,"quantity":0,"minQuantity":3},{"id":301,"barcode":"7899891313886","product":"DEO PARFUM GIGI 100 ML","group":"GIGI","line":"","price":0,"quantity":0,"minQuantity":3},{"id":302,"barcode":"7899891318430","product":"DEO PARFUM GIGI 40 ML","group":"GIGI","line":"","price":0,"quantity":0,"minQuantity":3},{"id":303,"barcode":"7899891304204","product":"GEL DE BANHO GIGI 210 G","group":"GIGI","line":"","price":0,"quantity":0,"minQuantity":3},{"id":304,"barcode":"7899891317716","product":"HIDRATANTE ILUMINADOR GIGI 200 G","group":"GIGI","line":"","price":0,"quantity":0,"minQuantity":3},{"id":305,"barcode":"7899891313879","product":"KIT GIGI - SERIE 3","group":"GIGI","line":"","price":0,"quantity":0,"minQuantity":3},{"id":306,"barcode":"7899891319307","product":"KIT GIGI- SERIE 4","group":"GIGI","line":"","price":0,"quantity":0,"minQuantity":3},{"id":307,"barcode":"7899891315019","product":"KIT MINI GIGI- SERIE 3","group":"GIGI","line":"","price":0,"quantity":0,"minQuantity":3},{"id":308,"barcode":"7899891304198","product":"OLEO DE BANHO GIGI 210 ML","group":"GIGI","line":"","price":0,"quantity":0,"minQuantity":3},{"id":309,"barcode":"7899891315729","product":"PERFUME CABELO GIGI 30 ML","group":"GIGI","line":"","price":0,"quantity":0,"minQuantity":3},{"id":310,"barcode":"7899891304181","product":"SABONETE EM BARRA GIGI 100 G (CX COM 2 UNID.)","group":"GIGI","line":"","price":0,"quantity":0,"minQuantity":3},{"id":311,"barcode":"7899891305577","product":"SERUM PARA AS MAOS GIGI 40 G","group":"GIGI","line":"","price":0,"quantity":0,"minQuantity":3},{"id":312,"barcode":"7899891314142","product":"CREME ACETINADO HIDRATANTE GIGI LAZULI 200 G","group":"GIGI LAZULI","line":"","price":0,"quantity":0,"minQuantity":3},{"id":313,"barcode":"7899891314029","product":"DEO PARFUM GIGI LAZULI 100 ML","group":"GIGI LAZULI","line":"","price":0,"quantity":0,"minQuantity":3},{"id":314,"barcode":"7899891318423","product":"DEO PARFUM GIGI LAZULI 40 ML","group":"GIGI LAZULI","line":"","price":0,"quantity":0,"minQuantity":3},{"id":315,"barcode":"7899891314593","product":"DEO PARFUM GIGI LAZULI ROLL ON 10 ML","group":"GIGI LAZULI","line":"","price":0,"quantity":0,"minQuantity":3},{"id":316,"barcode":"7899891314159","product":"GEL DE BANHO GIGI LAZULI 210 G","group":"GIGI LAZULI","line":"","price":0,"quantity":0,"minQuantity":3},{"id":317,"barcode":"7899891317723","product":"HIDRATANTE ILUMINADOR GIGI LAZULI 200 G","group":"GIGI LAZULI","line":"","price":0,"quantity":0,"minQuantity":3},{"id":318,"barcode":"7899891319314","product":"KIT GIGI LAZULI - SERIE 1","group":"GIGI LAZULI","line":"","price":0,"quantity":0,"minQuantity":3},{"id":319,"barcode":"7899891315026","product":"KIT MINI GIGI LAZULI","group":"GIGI LAZULI","line":"","price":0,"quantity":0,"minQuantity":3},{"id":320,"barcode":"7899891314166","product":"OLEO DE BANHO GIGI LAZULI 210 ML","group":"GIGI LAZULI","line":"","price":0,"quantity":0,"minQuantity":3},{"id":321,"barcode":"7899891315736","product":"PERFUME CABELO GIGI LAZULI 30 ML","group":"GIGI LAZULI","line":"","price":0,"quantity":0,"minQuantity":3},{"id":322,"barcode":"7899891314173","product":"SABONETE EM BARRA GIGI LAZULI 100 G (CX COM 2 UNID.)","group":"GIGI LAZULI","line":"","price":0,"quantity":0,"minQuantity":3},{"id":323,"barcode":"7899891314357","product":"SERUM PARA AS MAOS GIGI LAZULI 40 G","group":"GIGI LAZULI","line":"","price":0,"quantity":0,"minQuantity":3},{"id":324,"barcode":"7899891313374","product":"DEO PARFUM IRIS 100 ML","group":"IRIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":325,"barcode":"7899891318027","product":"DEO PARFUM IRIS ROSE 100ML","group":"IRIS ROSE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":326,"barcode":"7899891306390","product":"DIFUSOR DE ESSENCIAS JARDIM BRASIL","group":"JARDIM BRASIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":327,"barcode":"7899891315927","product":"DIFUSOR JARDIM BRASIL - COLECAO FASCINIO","group":"JARDIM BRASIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":328,"barcode":"7899891317334","product":"ESSENCIA P/ DIF FLOR DE VITORIA REGIA 210 ML - JARDIM BRASIL","group":"JARDIM BRASIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":329,"barcode":"7899891317341","product":"ESSENCIA P/ DIFUSOR FLOR DE MARACUJA 210 ML - JARDIM BRASIL","group":"JARDIM BRASIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":330,"barcode":"7899891317358","product":"ESSENCIA P/ DIFUSOR FLOR DE SAO JOAO 210 ML - JARDIM BRASIL","group":"JARDIM BRASIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":331,"barcode":"7899891306413","product":"ESSENCIA PARA DIFUSOR BROMELIA DO CERRADO 210 ML","group":"JARDIM BRASIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":332,"barcode":"7899891318478","product":"ESSENCIA PARA DIFUSOR FLOR DE IPE AMARELO 210 ML","group":"JARDIM BRASIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":333,"barcode":"7899891318492","product":"ESSENCIA PARA DIFUSOR FLOR DE MANDACARU 210 ML","group":"JARDIM BRASIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":334,"barcode":"7899891318485","product":"ESSENCIA PARA DIFUSOR FLOR DE PETUNIA 210 ML","group":"JARDIM BRASIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":335,"barcode":"7899891306420","product":"ESSENCIA PARA DIFUSOR MANACA DA SERRA 210 ML","group":"JARDIM BRASIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":336,"barcode":"7899891306406","product":"ESSENCIA PARA DIFUSOR ORQUIDEA CATTLEYA 210 ML","group":"JARDIM BRASIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":337,"barcode":"7899891318461","product":"KIT DIFUSOR JARDIM BRASIL - COLECAO VIVACE","group":"JARDIM BRASIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":338,"barcode":"7899891319345","product":"KIT SABONETE EM BARRA JARDIM BRASIL 100 G (CX. C/ 3 UN.)","group":"JARDIM BRASIL","line":"","price":0,"quantity":0,"minQuantity":3},{"id":339,"barcode":"7898464629911","product":"KIT EMULSAO SUAVIZANTE PARA AS MAOS","group":"KIT CREME PARA MAOS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":340,"barcode":"7899891303788","product":"KIT SABONETE EM BARRA DIA DIA 100 G (3 UNID)","group":"KIT SABONETE EM BARRA DIA DIA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":341,"barcode":"7899891317952","product":"DIFUSOR DE ESSENCIAS LAGUNA 350 ML","group":"LAGUNA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":342,"barcode":"7899891318805","product":"ESSENCIA PARA DIFUSOR LAGUNA 210 ML","group":"LAGUNA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":343,"barcode":"7899891317945","product":"PERFUME PARA INTERIORES LAGUNA 150 ML","group":"LAGUNA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":344,"barcode":"7899891318812","product":"REFIL SABONETE LIQUIDO LAGUNA 500 ML","group":"LAGUNA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":345,"barcode":"7899891317969","product":"SABONETE LIQUIDO LAGUNA 350 ML","group":"LAGUNA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":346,"barcode":"7899891317976","product":"VELA AROMATICA LAGUNA 190 G","group":"LAGUNA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":347,"barcode":"7899891303290","product":"BANHO REFRESCANTE LAVANDA 300 ML - DIA DIA","group":"LAVANDA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":348,"barcode":"7899891318140","product":"EMULSAO HIDRATANTE LAVANDA 200 ML - DIA DIA","group":"LAVANDA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":349,"barcode":"7899891303368","product":"EMULSAO HIDRATANTE LAVANDA 300 ML - DIA DIA","group":"LAVANDA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":350,"barcode":"7899891318157","product":"GEL DE BANHO LAVANDA 200 G - DIA DIA","group":"LAVANDA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":351,"barcode":"7899891303412","product":"GEL DE BANHO LAVANDA 300 G - DIA DIA","group":"LAVANDA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":352,"barcode":"7899891315071","product":"KIT BANHO REFRESCANTE DIA DIA LAVANDA - SERIE 2","group":"LAVANDA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":353,"barcode":"7899891305201","product":"KIT DIA DIA LAVANDA","group":"LAVANDA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":354,"barcode":"7899891303467","product":"SABONETE EM BARRA LAVANDA 200 G - DIA DIA","group":"LAVANDA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":355,"barcode":"7898464625777","product":"AGUA PERFUMADA PARA ROUPAS LAVANDA & AMBAR 1000 ML","group":"LAVANDA & AMBAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":356,"barcode":"7899891301944","product":"DIFUSOR DE ESSENCIAS LAVANDA & AMBAR 100 ML","group":"LAVANDA & AMBAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":357,"barcode":"7899891303931","product":"ESSENCIA PARA DIFUSOR LAVANDA & AMBAR 210 ML","group":"LAVANDA & AMBAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":358,"barcode":"7898464625753","product":"PERFUME PARA INTERIORES LAVANDA & AMBAR 500ML","group":"LAVANDA & AMBAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":359,"barcode":"7898464629256","product":"SABONETE EM BARRA LAVANDA & AMBAR 100 G (CX/3 UNID)","group":"LAVANDA & AMBAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":360,"barcode":"7898464625760","product":"SABONETE LIQUIDO LAVANDA & AMBAR 350 ML","group":"LAVANDA & AMBAR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":361,"barcode":"7899891315873","product":"DIFUSOR DE ESSENCIAS LEMONGRASS 150 ML - RITOS","group":"LEMONGRASS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":362,"barcode":"7899891318904","product":"ESSENCIA PARA DIFUSOR LEMONGRASS 210 ML - RITOS","group":"LEMONGRASS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":363,"barcode":"7899891302743","product":"GEL DE BANHO LEMONGRASS 300 G - RITOS","group":"LEMONGRASS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":364,"barcode":"7899891303238","product":"OLEO DE BANHO E MASSAGEM LEMONGRASS 120 ML - RITOS","group":"LEMONGRASS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":365,"barcode":"7899891302958","product":"REFIL INCENSO LEMONGRASS (CX. 12 UNID.) - RITOS","group":"LEMONGRASS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":366,"barcode":"7899891302910","product":"REFIL SAIS DE BANHO E ESPUMA LEMONGRASS 190 G - RITOS","group":"LEMONGRASS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":367,"barcode":"7899891302781","product":"SAIS DE BANHO E ESPUMA LEMONGRASS 190 G - RITOS","group":"LEMONGRASS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":368,"barcode":"7899891302835","product":"VELA AROMATICA E MASSAGEM LEMONGRASS 160 G - RITOS","group":"LEMONGRASS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":369,"barcode":"7899891305355","product":"ALCOOL EM GEL MANGA VERDE 55 G - AUTOCUIDADO","group":"MANGA VERDE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":370,"barcode":"7898464620253","product":"EMULSAO SUAVIZANTE MAOS MANGA VERDE 50G AUTOCUIDADO","group":"MANGA VERDE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":371,"barcode":"7899891313367","product":"OLEO EM CREME MARACUJA & LIMA 300 G","group":"MARACUJA & LIMA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":372,"barcode":"7899891303269","product":"BANHO REFRESCANTE MARINA 300 ML - DIA DIA","group":"MARINA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":373,"barcode":"7899891318126","product":"EMULSAO HIDRATANTE MARINA 200 ML - DIA DIA","group":"MARINA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":374,"barcode":"7898464627665","product":"EMULSAO HIDRATANTE MARINA 300 G","group":"MARINA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":375,"barcode":"7899891303320","product":"EMULSAO HIDRATANTE MARINA 300 ML - DIA DIA","group":"MARINA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":376,"barcode":"7899891318133","product":"GEL DE BANHO MARINA 200 G - DIA DIA","group":"MARINA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":377,"barcode":"7899891303382","product":"GEL DE BANHO MARINA 300 G - DIA DIA","group":"MARINA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":378,"barcode":"7898464627610","product":"GEL DE BANHO MARINA 300 ML","group":"MARINA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":379,"barcode":"7899891305669","product":"KIT BANHO MARINA DIA DIA","group":"MARINA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":380,"barcode":"7899891315057","product":"KIT BANHO REFRESCANTE DIA DIA MARINA - SERIE 2","group":"MARINA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":381,"barcode":"7899891305232","product":"KIT DIA DIA MARINA","group":"MARINA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":382,"barcode":"7899891303436","product":"SABONETE EM BARRA MARINA 200 G - DIA DIA","group":"MARINA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":383,"barcode":"7898464620451","product":"AGUA PERFUMADA PARA ROUPAS MARRUA 1100 ML","group":"MARRUA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":384,"barcode":"7898464625289","product":"ESSENCIA CONCENTRADA MARRUA 30 ML","group":"MARRUA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":385,"barcode":"7898464621090","product":"PERFUME PARA INTERIORES MARRUA 1100 ML","group":"MARRUA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":386,"barcode":"7898464620437","product":"PERFUME PARA INTERIORES MARRUA 200 ML","group":"MARRUA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":387,"barcode":"7898464629508","product":"REFIL SABONETE LIQUIDO MARRUA 500ML","group":"MARRUA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":388,"barcode":"7899891309063","product":"SABONETE EM BARRA MARRUA 120 G","group":"MARRUA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":389,"barcode":"7899891307212","product":"SABONETE LIQUIDO MARRUA 400 ML","group":"MARRUA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":390,"barcode":"7898464625845","product":"SABONETE LIQUIDO MARRUA 500 ML","group":"MARRUA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":391,"barcode":"7899891307588","product":"MASCARA FACIAL BRANCA 140 G","group":"MASCARAS FACIAIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":392,"barcode":"7899891307595","product":"MASCARA FACIAL PRETA 140 G","group":"MASCARAS FACIAIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":393,"barcode":"7899891307571","product":"MASCARA FACIAL VERDE 140 G","group":"MASCARAS FACIAIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":394,"barcode":"7899891320570","product":"BOOK PORTOLIO AVATIM","group":"MATERIAL DE APOIO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":395,"barcode":"7899891307335","product":"ETIQUETA PROVADOR SINTA AVATIM (PCT C/ 50 UND.)","group":"MATERIAL DE APOIO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":396,"barcode":"7898464627849","product":"ETIQUETA TRANSPARENTE C/ HOT (PCT 200 UN)","group":"MATERIAL DE APOIO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":397,"barcode":"7899891308103","product":"ETIQUETA VERDE C/ HOT (PCT 200 UN)","group":"MATERIAL DE APOIO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":398,"barcode":"7898464627801","product":"TAG PRESENTE (PACOTE C/ 100 UN)","group":"MATERIAL DE APOIO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":399,"barcode":"7898464627726","product":"TIRAS OLFATIVAS - PAPEL TESTE","group":"MATERIAL DE APOIO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":400,"barcode":"7899891307809","product":"CALDA ESFOLIANTE 100 ML - BISNAGA - MEL TERAPIA","group":"MEL TERAPIA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":401,"barcode":"7899891307786","product":"HIDRATANTE FACIAL 100 G - BISNAGA - MEL TERAPIA","group":"MEL TERAPIA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":402,"barcode":"7899891315040","product":"KIT MEL TERAPIA","group":"MEL TERAPIA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":403,"barcode":"7899891307793","product":"MOUSSE DE LIMPEZA 100 G - BISNAGA - MEL TERAPIA","group":"MEL TERAPIA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":404,"barcode":"7898464624848","product":"SACHE MINI ALMOFADA AMBAR (CX C/ 6 UNID.)","group":"MINI ALMOFADA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":405,"barcode":"7898464624855","product":"SACHE MINI ALMOFADA CASCAS & FOLHAS (CX C/ 6 UNID.)","group":"MINI ALMOFADA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":406,"barcode":"7899891301685","product":"SACHE MINI ALMOFADA FLOR DE ALGODAO (CX C/ 6 UNID.)","group":"MINI ALMOFADA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":407,"barcode":"7899891307762","product":"SACHE MINI ALMOFADA PITANGA (CX C/ 6 UNID.)","group":"MINI ALMOFADA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":408,"barcode":"7898464624879","product":"SACHE MINI ALMOFADA PROVENCE (CX C/ 6 UNID.)","group":"MINI ALMOFADA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":409,"barcode":"7899891315903","product":"DIFUSOR DE ESSENCIAS MURU MURU 150 ML - RITOS","group":"MURU MURU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":410,"barcode":"7899891318928","product":"ESSENCIA PARA DIFUSOR MURU MURU 210 ML - RITOS","group":"MURU MURU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":411,"barcode":"7899891303214","product":"GEL DE BANHO MURU MURU 300 G - RITOS","group":"MURU MURU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":412,"barcode":"7899891302804","product":"OLEO DE BANHO E MASSAGEM MURU MURU 120 ML - RITOS","group":"MURU MURU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":413,"barcode":"7899891302941","product":"REFIL INCENSO MURU MURU (CX. 12 UNID.) - RITOS","group":"MURU MURU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":414,"barcode":"7899891302903","product":"REFIL SAIS DE BANHO E ESPUMA MURU MURU 190 G - RITOS","group":"MURU MURU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":415,"barcode":"7899891302774","product":"SAIS DE BANHO E ESPUMA MURU MURU 190 G - RITOS","group":"MURU MURU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":416,"barcode":"7899891302828","product":"VELA AROMATICA E MASSAGEM MURU MURU 160 G - RITOS","group":"MURU MURU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":417,"barcode":"7899891302613","product":"CONDICIONADOR MURU MURU & PATAUA 300 ML","group":"MURU MURU & PATAUA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":418,"barcode":"7899891318959","product":"CONDICIONADOR MURU MURU & PATAUA 300 ML SERIE 1","group":"MURU MURU & PATAUA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":419,"barcode":"7899891308486","product":"CONDICIONADOR MURU MURU & PATAUA 400 ML","group":"MURU MURU & PATAUA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":420,"barcode":"7899891300640","product":"CREME DE MANTEIGAS MURU MURU & PATAUA 200 G","group":"MURU MURU & PATAUA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":421,"barcode":"7899891318447","product":"CREME DE MANTEIGAS MURU MURU & PATAUA 200 G SERIE 1","group":"MURU MURU & PATAUA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":422,"barcode":"7899891314135","product":"KIT MURU MURU & PATAUA - SERIE 1","group":"MURU MURU & PATAUA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":423,"barcode":"7899891302620","product":"MASCARA CAPILAR MURU MURU & PATAUA 350G","group":"MURU MURU & PATAUA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":424,"barcode":"7899891314067","product":"SABONETE EM BARRA MURU MURU & PATAUA 80 G (CX 2 UND)","group":"MURU MURU & PATAUA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":425,"barcode":"7899891302606","product":"XAMPU MURU MURU & PATAUA 300 ML","group":"MURU MURU & PATAUA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":426,"barcode":"7899891318942","product":"XAMPU MURU MURU & PATAUA 300 ML SERIE 1","group":"MURU MURU & PATAUA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":427,"barcode":"7899891308479","product":"XAMPU MURU MURU & PATAUA 400 ML","group":"MURU MURU & PATAUA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":428,"barcode":"7899891318935","product":"MASCARA CAPILAR MURU MURU & PATAUA 350 G SERIE 1","group":"MURUMURU (LINHA RESERVA)","line":"","price":0,"quantity":0,"minQuantity":3},{"id":429,"barcode":"7898464624497","product":"OLEO DE MASSAGEM CORPORAL LEMONGRASS 120 ML","group":"OLEOS DE MASSAGEM","line":"","price":0,"quantity":0,"minQuantity":3},{"id":430,"barcode":"7899891318164","product":"GEL DE BANHO OLIBANO 300 G - RITOS","group":"OLIBANO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":431,"barcode":"7899891318171","product":"OLEO DE BANHO E MASSAGEM OLIBANO 120 ML - RITOS","group":"OLIBANO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":432,"barcode":"7899891318393","product":"REFIL INCENSO OLIBANO (CX C/12 UNIDADES) - RITOS","group":"OLIBANO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":433,"barcode":"7899891318188","product":"SAIS DE BANHO E ESPUMA OLIBANO 190 G - RITOS","group":"OLIBANO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":434,"barcode":"7899891318195","product":"VELA AROMATICA E MASSAGEM OLIBANO 160 G - RITOS","group":"OLIBANO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":435,"barcode":"7899891313725","product":"DEO COLONIA OZARA 100 ML","group":"OZARA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":436,"barcode":"7899891314654","product":"KIT MINI OZARA","group":"OZARA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":437,"barcode":"7899891315576","product":"MOUSSE DE BANHO OZARA 150 ML","group":"OZARA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":438,"barcode":"7899891315583","product":"OLEO DE MASSAGEM OZARA 150 ML","group":"OZARA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":439,"barcode":"7899891313350","product":"OLEO EM CREME PERA & LIMAO 300 G","group":"PERA & LIMAO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":440,"barcode":"7899891309216","product":"PERFUME PARA INTERIORES BROMELIA DO CERRADO 1100 ML","group":"PERFUME PARA INTERIORES 1100","line":"","price":0,"quantity":0,"minQuantity":3},{"id":441,"barcode":"7899891304815","product":"PERFUME PARA INTERIORES CARDAMOMO 1100 ML","group":"PERFUME PARA INTERIORES 1100","line":"","price":0,"quantity":0,"minQuantity":3},{"id":442,"barcode":"7898464621038","product":"PERFUME PARA INTERIORES GABRIELA 1100 ML","group":"PERFUME PARA INTERIORES 1100","line":"","price":0,"quantity":0,"minQuantity":3},{"id":443,"barcode":"7899891309230","product":"PERFUME PARA INTERIORES MANACA DA SERRA 1100 ML","group":"PERFUME PARA INTERIORES 1100","line":"","price":0,"quantity":0,"minQuantity":3},{"id":444,"barcode":"7898464621144","product":"PERFUME PARA INTERIORES ORIENTAL 1100 ML","group":"PERFUME PARA INTERIORES 1100","line":"","price":0,"quantity":0,"minQuantity":3},{"id":445,"barcode":"7899891309223","product":"PERFUME PARA INTERIORES ORQUIDEA CATTLEYA 1100 ML","group":"PERFUME PARA INTERIORES 1100","line":"","price":0,"quantity":0,"minQuantity":3},{"id":446,"barcode":"7898464621229","product":"PERFUME PARA INTERIORES VERBENA 1100 ML","group":"PERFUME PARA INTERIORES 1100","line":"","price":0,"quantity":0,"minQuantity":3},{"id":447,"barcode":"7898464621946","product":"PERFUME PARA INTERIORES VERBENA 200 ML","group":"PERFUME PARA INTERIORES 200","line":"","price":0,"quantity":0,"minQuantity":3},{"id":448,"barcode":"7898464622257","product":"AGUA PERFUMADA PARA ROUPAS PITANGA 1100 ML","group":"PITANGA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":449,"barcode":"7898464625326","product":"ESSENCIA CONCENTRADA PITANGA 30 ML","group":"PITANGA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":450,"barcode":"7898464629225","product":"ESSENCIA PARA DIFUSOR PITANGA 210 ML","group":"PITANGA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":451,"barcode":"7898464621182","product":"PERFUME PARA INTERIORES PITANGA 1100 ML","group":"PITANGA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":452,"barcode":"7898464621908","product":"PERFUME PARA INTERIORES PITANGA 200 ML","group":"PITANGA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":453,"barcode":"7898464629621","product":"REFIL SABONETE LIQUIDO PITANGA 500ML","group":"PITANGA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":454,"barcode":"7899891307748","product":"SABONETE EM BARRA PITANGA 120 G","group":"PITANGA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":455,"barcode":"7899891307182","product":"SABONETE LIQUIDO PITANGA 400 ML","group":"PITANGA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":456,"barcode":"7898464625852","product":"SABONETE LIQUIDO PITANGA 500 ML","group":"PITANGA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":457,"barcode":"7898464622264","product":"AGUA PERFUMADA PARA ROUPAS PROVENCE 1100 ML","group":"PROVENCE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":458,"barcode":"7898464625296","product":"ESSENCIA CONCENTRADA PROVENCE 30 ML","group":"PROVENCE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":459,"barcode":"7898464629232","product":"ESSENCIA PARA DIFUSOR PROVENCE 210 ML","group":"PROVENCE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":460,"barcode":"7899891318737","product":"GEL ANTISSEPTICO PARA AS MAOS PROVENCE 320 G","group":"PROVENCE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":461,"barcode":"7898464621199","product":"PERFUME PARA INTERIORES PROVENCE 1100 ML","group":"PROVENCE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":462,"barcode":"7898464621915","product":"PERFUME PARA INTERIORES PROVENCE 200 ML","group":"PROVENCE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":463,"barcode":"7898464626309","product":"PERFUME PARA INTERIORES PROVENCE 4600 ML","group":"PROVENCE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":464,"barcode":"7898464629638","product":"REFIL SABONETE LIQUIDO PROVENCE 500ML","group":"PROVENCE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":465,"barcode":"7899891308660","product":"SABONETE EM BARRA PROVENCE 120 G","group":"PROVENCE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":466,"barcode":"7899891307205","product":"SABONETE LIQUIDO PROVENCE 400 ML","group":"PROVENCE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":467,"barcode":"7898464625869","product":"SABONETE LIQUIDO PROVENCE 500 ML","group":"PROVENCE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":468,"barcode":"7899891308790","product":"DEO COLONIA AMAU 100 ML - RELICARIO","group":"RELICARIO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":469,"barcode":"7899891308776","product":"DEO COLONIA APOENA 100 ML - RELICARIO","group":"RELICARIO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":470,"barcode":"7899891308806","product":"DEO COLONIA EM FLOR 100 ML - RELICARIO","group":"RELICARIO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":471,"barcode":"7899891308738","product":"OLEO ESSENCIAL ALECRIM 10 ML - RITOS","group":"RITOS ESSENCIAIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":472,"barcode":"7899891308714","product":"OLEO ESSENCIAL AMAZONGRASS 10 ML - RITOS","group":"RITOS ESSENCIAIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":473,"barcode":"7899891308752","product":"OLEO ESSENCIAL LAVANDA 10 ML - RITOS","group":"RITOS ESSENCIAIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":474,"barcode":"7899891313893","product":"OLEO ESSENCIAL LIMAO SICILIANO 10 ML - RITOS","group":"RITOS ESSENCIAIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":475,"barcode":"7899891308707","product":"OLEO ESSENCIAL MELALEUCA 10 ML - RITOS","group":"RITOS ESSENCIAIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":476,"barcode":"7899891308745","product":"OLEO ESSENCIAL MENTA PIPERITA 10 ML - RITOS","group":"RITOS ESSENCIAIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":477,"barcode":"7899891309001","product":"OLEO VEGETAL DE SEMENTE DE UVA 120 ML - RITOS","group":"RITOS ESSENCIAIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":478,"barcode":"7899891309025","product":"TIGELA PARA MISTURA - RITOS","group":"RITOS ESSENCIAIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":479,"barcode":"7899891318508","product":"DEO COLONIA ROSA BRASILIS 50 ML","group":"ROSA BRASILIS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":480,"barcode":"7899891300602","product":"SACOLA G VERDE","group":"SACOLAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":481,"barcode":"7899891302194","product":"SACOLA G VERDE ALCA GORGURAO","group":"SACOLAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":482,"barcode":"9000001123785","product":"SACOLA M GIGI LAZULI ALCA GORGURAO","group":"SACOLAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":483,"barcode":"7899891300596","product":"SACOLA M VERDE","group":"SACOLAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":484,"barcode":"7899891302187","product":"SACOLA M VERDE ALCA GORGURAO","group":"SACOLAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":485,"barcode":"7899891300589","product":"SACOLA P VERDE","group":"SACOLAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":486,"barcode":"7899891302170","product":"SACOLA P VERDE ALCA GORGURAO","group":"SACOLAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":487,"barcode":"7899891300572","product":"SACOLA PP VERDE","group":"SACOLAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":488,"barcode":"7899891300046","product":"CREME HIDRATANTE QUERATOLITICO PARA OS PES 100 G - SANTO PE","group":"SANTO PE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":489,"barcode":"7899891300015","product":"DESODORANTE PARA OS PES 150 ML - SANTO PE","group":"SANTO PE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":490,"barcode":"7899891300060","product":"GEL RELAXANTE PARA OS PES E PERNAS 130 G - SANTO PE","group":"SANTO PE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":491,"barcode":"7899891300039","product":"PASTA AGRIDOCE ESFOLIANTE PARA OS PES - SANTO PE","group":"SANTO PE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":492,"barcode":"7899891300053","product":"PEDILUVIO BANHO RELAXANTE PARA OS PES 150 G - SANTO PE","group":"SANTO PE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":493,"barcode":"7899891300022","product":"TALCO EM CREME PARA OS PES 80 G - SANTO PE","group":"SANTO PE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":494,"barcode":"7899891308240","product":"DEO PARFUM SELETO 100 ML - SERIE 2","group":"SELETO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":495,"barcode":"7899891306116","product":"DESODORANTE AEROSOL ANTITRANSPIRANTE SELETO 150 ML","group":"SELETO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":496,"barcode":"7899891317754","product":"KIT MINI SELETO","group":"SELETO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":497,"barcode":"7899891306314","product":"SABONETE EM BARRA SELETO 2 EM 1 - 100 G (CX COM 2 UNID.)","group":"SELETO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":498,"barcode":"7899891306109","product":"SHOWER GEL SELETO - CABELO & CORPO 200 G","group":"SELETO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":499,"barcode":"7899891312117","product":"DEO PARFUM SELETO HERBO 100 ML","group":"SELETO HERBO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":500,"barcode":"7899891313763","product":"DESODORANTE AEROSSOL ANTITRANSPIRANTE SELETO HERBO 150ML","group":"SELETO HERBO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":501,"barcode":"7899891314630","product":"KIT MINI SELETO HERBO","group":"SELETO HERBO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":502,"barcode":"7899891317778","product":"KIT MINI SELETO HERBO SERIE 1","group":"SELETO HERBO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":503,"barcode":"7899891313770","product":"LOCAO HIDRATANTE SELETO HERBO 130 ML","group":"SELETO HERBO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":504,"barcode":"7899891313749","product":"SABONETE EM BARRA SELETO HERBO 100G (CX C/ 2 UND)","group":"SELETO HERBO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":505,"barcode":"7899891313756","product":"SHOWER GEL 2 EM 1 SELETO HERBO - 200 G","group":"SELETO HERBO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":506,"barcode":"7899891307694","product":"DEO PARFUM SELETO OCEAN 100 ML","group":"SELETO OCEAN","line":"","price":0,"quantity":0,"minQuantity":3},{"id":507,"barcode":"7899891307724","product":"DESODORANTE AEROSOL ANTITRANSPIRANTE SELETO OCEAN 150 ML","group":"SELETO OCEAN","line":"","price":0,"quantity":0,"minQuantity":3},{"id":508,"barcode":"7899891314647","product":"KIT MINI SELETO OCEAN","group":"SELETO OCEAN","line":"","price":0,"quantity":0,"minQuantity":3},{"id":509,"barcode":"7899891317761","product":"KIT MINI SELETO OCEAN SERIE 1","group":"SELETO OCEAN","line":"","price":0,"quantity":0,"minQuantity":3},{"id":510,"barcode":"7899891309148","product":"LOCAO HIDRATANTE SELETO OCEAN 130 ML","group":"SELETO OCEAN","line":"","price":0,"quantity":0,"minQuantity":3},{"id":511,"barcode":"7899891307717","product":"SABONETE EM BARRA SELETO OCEAN 2 EM 1 - 100 G (CX COM 2 UND)","group":"SELETO OCEAN","line":"","price":0,"quantity":0,"minQuantity":3},{"id":512,"barcode":"7899891307700","product":"SHOWER GEL SELETO OCEAN - CABELO & CORPO 200 G","group":"SELETO OCEAN","line":"","price":0,"quantity":0,"minQuantity":3},{"id":513,"barcode":"7899891307922","product":"AGUA REFRESC COCO & ROMA 200 ML SENSORE","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":514,"barcode":"7899891315279","product":"AGUA REFRESC COCO & ROMA 260 ML SENSORE","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":515,"barcode":"7899891315262","product":"AGUA REFRESC ROSAS & DAMASCO 260 ML SENSORE","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":516,"barcode":"7899891315255","product":"AGUA REFRESC SICILIANO & BAUNILHA 260 ML SENSORE","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":517,"barcode":"7899891307830","product":"CREME HIDRATANTE PARA MAOS COCO & ROMA 50 G SENSORE","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":518,"barcode":"7899891307847","product":"CREME HIDRATANTE PARA MAOS ROSAS & DAMASCO 50 G SENSORE","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":519,"barcode":"7899891307854","product":"CREME HIDRATANTE PARA MAOS SICILIANO & BAUNILHA 50 G SENSORE","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":520,"barcode":"7899891308035","product":"DIFUSOR DE ESSENCIAS COCO & ROMA 120 ML - SENSORE","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":521,"barcode":"7899891307861","product":"DIFUSOR DE ESSENCIAS ROSAS & DAMASCO 120 ML - SENSORE","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":522,"barcode":"7899891308011","product":"DIFUSOR DE ESSENCIAS SICILIANO & BAUNILHA 120 ML - SENSORE","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":523,"barcode":"7899891318522","product":"ESSENCIA PARA DIFUSOR COCO & ROMA 210 ML - SENSORE","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":524,"barcode":"7899891318539","product":"ESSENCIA PARA DIFUSOR ROSAS & DAMASCO 210 ML","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":525,"barcode":"7899891318546","product":"ESSENCIA PARA DIFUSOR SICILIANO & BAUNILHA 210 ML","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":526,"barcode":"7899891307939","product":"GEL DE BANHO COCO & ROMA 200 G - SENSORE","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":527,"barcode":"7899891307960","product":"GEL DE BANHO ROSAS & DAMASCO 200 G - SENSORE","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":528,"barcode":"7899891307991","product":"GEL DE BANHO SICILIANO & BAUNILHA 200 G - SENSORE","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":529,"barcode":"7899891307946","product":"HIDRATANTE CORPORAL COCO & ROMA 200 G - SENSORE","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":530,"barcode":"7899891307977","product":"HIDRATANTE CORPORAL ROSAS & DAMASCO 200 G - SENSORE","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":531,"barcode":"7899891308004","product":"HIDRATANTE CORPORAL SICILIANO & BAUNILHA 200 G - SENSORE","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":532,"barcode":"7899891315002","product":"KIT CREME PARA AS MAOS SENSORE - VERDE","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":533,"barcode":"7899891315293","product":"KIT CREME PARA AS MAOS SENSORE - VERMELHA","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":534,"barcode":"7899891318409","product":"KIT MINI AGUAS REFRESCANTES - SENSORE","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":535,"barcode":"7899891307892","product":"SABONETE EM BARRA COCO & ROMA 100 G (CX/ 3 ) SENSORE","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":536,"barcode":"7899891308028","product":"SABONETE EM BARRA ROSAS & DAMASCO 100 G (CX/3) SENSORE","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":537,"barcode":"7899891307885","product":"SABONETE EM BARRA SICILIANO & BAUNILHA 100 G (CX/ 3) SENSORE","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":538,"barcode":"7899891307908","product":"SABONETE LIQUIDO COCO & ROMA 370 ML - SENSORE","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":539,"barcode":"7899891307915","product":"SABONETE LIQUIDO ROSAS & DAMASCO 370 ML - SENSORE","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":540,"barcode":"7899891307878","product":"SABONETE LIQUIDO SICILIANO & BAUNILHA 370 ML - SENSORE","group":"SENSORE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":541,"barcode":"7899891307663","product":"CREME ACETINADO HIDRATANTE CORPORAL SERENA 200 G","group":"SERENA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":542,"barcode":"7899891307687","product":"DEO PARFUM SERENA 100 ML","group":"SERENA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":543,"barcode":"7899891307649","product":"GEL DE BANHO SERENA 200 G","group":"SERENA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":544,"barcode":"7899891307656","product":"OLEO DE BANHO SERENA 210 ML","group":"SERENA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":545,"barcode":"7899891318362","product":"DEO PARFUM SERENA INTENSE 100 ML","group":"SERENA INTENSE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":546,"barcode":"7899891317839","product":"DIFUSOR DE ESSENCIAS SILVESTRE 250 ML","group":"SILVESTRE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":547,"barcode":"7899891317860","product":"ESSENCIA PARA DIFUSOR SILVESTRE 210 ML","group":"SILVESTRE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":548,"barcode":"7899891317822","product":"PERFUME PARA INTERIORES SILVESTRE 100 ML","group":"SILVESTRE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":549,"barcode":"7899891318041","product":"REFIL SABONETE LIQUIDO SILVESTRE 500 ML","group":"SILVESTRE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":550,"barcode":"7899891317846","product":"SABONETE LIQUIDO SILVESTRE 250 ML","group":"SILVESTRE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":551,"barcode":"7899891317853","product":"VELA AROMATICA SILVESTRE 250 G","group":"SILVESTRE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":552,"barcode":"7899891315682","product":"DEO COLONIA SUBLIME 100 ML","group":"SUBLIME","line":"","price":0,"quantity":0,"minQuantity":3},{"id":553,"barcode":"7899891307052","product":"DEO COLONIA SUBLIME 60 ML","group":"SUBLIME","line":"","price":0,"quantity":0,"minQuantity":3},{"id":554,"barcode":"7899891313909","product":"DESODORANTE AEROSSOL ANTITRANSPIRANTE SUBLIME 150ML/G","group":"SUBLIME","line":"","price":0,"quantity":0,"minQuantity":3},{"id":555,"barcode":"7899891317365","product":"KIT MINI SUBLIME","group":"SUBLIME","line":"","price":0,"quantity":0,"minQuantity":3},{"id":556,"barcode":"7899891319178","product":"KIT SUBLIME SERIE 1","group":"SUBLIME","line":"","price":0,"quantity":0,"minQuantity":3},{"id":557,"barcode":"7899891315705","product":"PERFUME CABELO SUBLIME 30 ML","group":"SUBLIME","line":"","price":0,"quantity":0,"minQuantity":3},{"id":558,"barcode":"7899891315699","product":"DEO COLONIA SUBLIME LUME 100 ML","group":"SUBLIME LUME","line":"","price":0,"quantity":0,"minQuantity":3},{"id":559,"barcode":"7899891314470","product":"DEO COLONIA SUBLIME LUME 60 ML","group":"SUBLIME LUME","line":"","price":0,"quantity":0,"minQuantity":3},{"id":560,"barcode":"7899891317372","product":"KIT MINI SUBLIME LUME","group":"SUBLIME LUME","line":"","price":0,"quantity":0,"minQuantity":3},{"id":561,"barcode":"7899891319185","product":"KIT SUBLIME LUME","group":"SUBLIME LUME","line":"","price":0,"quantity":0,"minQuantity":3},{"id":562,"barcode":"7899891315712","product":"PERFUME CABELO SUBLIME LUME 30 ML","group":"SUBLIME LUME","line":"","price":0,"quantity":0,"minQuantity":3},{"id":563,"barcode":"7899891315651","product":"DIFUSOR DE ESSENCIAS TERRA MADRE 350 ML - SERIE 1","group":"TERRA MADRE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":564,"barcode":"7899891318836","product":"DIFUSOR DE ESSENCIAS TERRA MADRE 350 ML SERIE 2","group":"TERRA MADRE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":565,"barcode":"7898464629058","product":"ESSENCIA PARA DIFUSOR TERRA MADRE 210 ML","group":"TERRA MADRE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":566,"barcode":"7899891315644","product":"PERFUME PARA INTERIORES TERRA MADRE 150 ML - SERIE 1","group":"TERRA MADRE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":567,"barcode":"7899891318867","product":"PERFUME PARA INTERIORES TERRA MADRE 150 ML SERIE 2","group":"TERRA MADRE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":568,"barcode":"7899891318553","product":"REFIL SABONETE LIQUIDO TERRA MADRE 500 ML - SERIE 1","group":"TERRA MADRE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":569,"barcode":"7899891315668","product":"SABONETE LIQUIDO TERRA MADRE 350 ML - SERIE 1","group":"TERRA MADRE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":570,"barcode":"7899891318843","product":"SABONETE LIQUIDO TERRA MADRE 350 ML SERIE 2","group":"TERRA MADRE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":571,"barcode":"7899891315149","product":"VELA AROMATICA TERRA MADRE 160 G","group":"TERRA MADRE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":572,"barcode":"7899891318850","product":"VELA AROMATICA TERRA MADRE 190 G","group":"TERRA MADRE","line":"","price":0,"quantity":0,"minQuantity":3},{"id":573,"barcode":"7899891309087","product":"CRACHA VENDEDOR","group":"UNIFORMES","line":"","price":0,"quantity":0,"minQuantity":3},{"id":574,"barcode":"7898464620505","product":"VALVULA DISPERSORA AVATIM","group":"VALVULA DISPERSORA","line":"","price":0,"quantity":0,"minQuantity":3},{"id":575,"barcode":"7899891315613","product":"DIFUSOR DE ESSENCIAS VANILLA NOIR 100 ML","group":"VANILLA NOIR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":576,"barcode":"7899891318751","product":"ESSENCIA PARA DIFUSOR VANILLA NOIR 210 ML","group":"VANILLA NOIR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":577,"barcode":"7899891315620","product":"PERFUME PARA INTERIORES VANILLA NOIR 90 ML","group":"VANILLA NOIR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":578,"barcode":"7899891315637","product":"VELA AROMATICA VANILLA NOIR 50 G","group":"VANILLA NOIR","line":"","price":0,"quantity":0,"minQuantity":3},{"id":579,"barcode":"7899891307045","product":"VARETAS BRANCAS G (PCT COM 8 UND)","group":"VARETAS DIFUSORAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":580,"barcode":"7899891300800","product":"VARETAS BRANCAS M (PCT COM 12 UND)","group":"VARETAS DIFUSORAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":581,"barcode":"7898464629348","product":"VARETAS CARACOL","group":"VARETAS DIFUSORAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":582,"barcode":"7899891307021","product":"VARETAS ESCURAS G (PCT COM 8 UND)","group":"VARETAS DIFUSORAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":583,"barcode":"7899891300794","product":"VARETAS ESCURAS M (PCT COM 12 UND)","group":"VARETAS DIFUSORAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":584,"barcode":"7899891307014","product":"VARETAS MARROM G (PCT COM 8 UND)","group":"VARETAS DIFUSORAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":585,"barcode":"7899891307007","product":"VARETAS MARROM M (PCT COM 12 UND)","group":"VARETAS DIFUSORAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":586,"barcode":"7898464624329","product":"VARETAS MINI FLORES BRANCAS","group":"VARETAS DIFUSORAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":587,"barcode":"7898464624343","product":"VARETAS MINI FLORES LARANJAS","group":"VARETAS DIFUSORAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":588,"barcode":"7898464624336","product":"VARETAS MINI FLORES LILAS","group":"VARETAS DIFUSORAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":589,"barcode":"7898464624350","product":"VARETAS MINI FLORES ROSAS","group":"VARETAS DIFUSORAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":590,"barcode":"7898464629683","product":"VARETAS PALITO","group":"VARETAS DIFUSORAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":591,"barcode":"7899891312490","product":"VARETAS PINUS BOLA NATURAL 30 CM","group":"VARETAS DIFUSORAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":592,"barcode":"7899891307038","product":"VARETAS RATTAN G (PCT COM 8 UND)","group":"VARETAS DIFUSORAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":593,"barcode":"7899891305300","product":"VARETAS RATTAN M (PCT COM 12 UNID)","group":"VARETAS DIFUSORAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":594,"barcode":"7898464629690","product":"VARETAS ROSA LILAS","group":"VARETAS DIFUSORAS","line":"","price":0,"quantity":0,"minQuantity":3},{"id":595,"barcode":"7899891317990","product":"DIFUSOR DE ESSENCIAS VELVET 200 ML","group":"VELVET","line":"","price":0,"quantity":0,"minQuantity":3},{"id":596,"barcode":"7899891318300","product":"ESSENCIA PARA DIFUSOR VELVET 210 ML","group":"VELVET","line":"","price":0,"quantity":0,"minQuantity":3},{"id":597,"barcode":"7899891317983","product":"PERFUME PARA INTERIORES VELVET 110 ML","group":"VELVET","line":"","price":0,"quantity":0,"minQuantity":3},{"id":598,"barcode":"7899891318058","product":"REFIL SABONETE LIQUIDO VELVET 500 ML","group":"VELVET","line":"","price":0,"quantity":0,"minQuantity":3},{"id":599,"barcode":"7899891318003","product":"SABONETE LIQUIDO VELVET 310 ML","group":"VELVET","line":"","price":0,"quantity":0,"minQuantity":3},{"id":600,"barcode":"7899891318010","product":"VELA AROMATICA VELVET 65 G","group":"VELVET","line":"","price":0,"quantity":0,"minQuantity":3},{"id":601,"barcode":"7899891308615","product":"AGUA REFRESCANTE VERBENA & BAMBU 300 ML","group":"VERBENA & BAMBU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":602,"barcode":"7899891307823","product":"CONDICIONADOR VERBENA & BAMBU 200 ML","group":"VERBENA & BAMBU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":603,"barcode":"7899891308592","product":"GEL DE BANHO VERBENA & BAMBU 200 G","group":"VERBENA & BAMBU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":604,"barcode":"7899891313817","product":"KIT AMENIDADES VERBENA & BAMBU - SERIE 1","group":"VERBENA & BAMBU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":605,"barcode":"7899891308608","product":"LOCAO HIDRATANTE CORPORAL VERBENA & BAMBU 200 ML","group":"VERBENA & BAMBU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":606,"barcode":"7899891303900","product":"SABONETE EM BARRA VERBENA & BAMBU 100 G (PC COM 3 UNID)","group":"VERBENA & BAMBU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":607,"barcode":"7899891307816","product":"SHAMPOO VERBENA & BAMBU 200 ML","group":"VERBENA & BAMBU","line":"","price":0,"quantity":0,"minQuantity":3},{"id":608,"barcode":"7899891315897","product":"DIFUSOR DE ESSENCIAS YLANG YLANG 150 ML - RITOS","group":"YLANG YLANG","line":"","price":0,"quantity":0,"minQuantity":3},{"id":609,"barcode":"7899891318911","product":"ESSENCIA PARA DIFUSOR YLANG YLANG 210 ML - RITOS","group":"YLANG YLANG","line":"","price":0,"quantity":0,"minQuantity":3},{"id":610,"barcode":"7899891303207","product":"GEL DE BANHO YLANG YLANG 300 G - RITOS","group":"YLANG YLANG","line":"","price":0,"quantity":0,"minQuantity":3},{"id":611,"barcode":"7899891303221","product":"OLEO DE BANHO E MASSAGEM YLANG YLANG 120 ML - RITOS","group":"YLANG YLANG","line":"","price":0,"quantity":0,"minQuantity":3},{"id":612,"barcode":"7899891302934","product":"REFIL INCENSO YLANG YLANG (CX. 12 UNID.) - RITOS","group":"YLANG YLANG","line":"","price":0,"quantity":0,"minQuantity":3},{"id":613,"barcode":"7899891302897","product":"REFIL SAIS DE BANHO E ESPUMA YLANG YLANG 190 G - RITOS","group":"YLANG YLANG","line":"","price":0,"quantity":0,"minQuantity":3},{"id":614,"barcode":"7899891302767","product":"SAIS DE BANHO E ESPUMA YLANG YLANG 190 G - RITOS","group":"YLANG YLANG","line":"","price":0,"quantity":0,"minQuantity":3},{"id":615,"barcode":"7899891302811","product":"VELA AROMATICA E MASSAGEM YLANG YLANG 160 G - RITOS","group":"YLANG YLANG","line":"","price":0,"quantity":0,"minQuantity":3},{"id":616,"barcode":"7899891315880","product":"DIFUSOR DE ESSENCIAS ZIMBRO 150 ML - RITOS","group":"ZIMBRO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":617,"barcode":"7899891318898","product":"ESSENCIA PARA DIFUSOR ZIMBRO 210 ML - RITOS","group":"ZIMBRO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":618,"barcode":"7899891302750","product":"GEL DE BANHO ZIMBRO 300 G - RITOS","group":"ZIMBRO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":619,"barcode":"7899891303245","product":"OLEO DE BANHO E MASSAGEM ZIMBRO 120 ML - RITOS","group":"ZIMBRO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":620,"barcode":"7899891302965","product":"REFIL INCENSO ZIMBRO (CX. 12 UNID.) - RITOS","group":"ZIMBRO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":621,"barcode":"7899891302927","product":"REFIL SAIS DE BANHO E ESPUMA ZIMBRO 190 G - RITOS","group":"ZIMBRO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":622,"barcode":"7899891302798","product":"SAIS DE BANHO E ESPUMA ZIMBRO 190 G - RITOS","group":"ZIMBRO","line":"","price":0,"quantity":0,"minQuantity":3},{"id":623,"barcode":"7898602570617","product":"VELA AROMATICA E MASSAGEM ZIMBRO 160 G - RITOS","group":"ZIMBRO","line":"","price":0,"quantity":0,"minQuantity":3}];
 
 const CATALOG_VERSION = 2; // 623 produtos PRODUTOS_AVATIM com codigo de barras
+
+const INITIAL_INSUMOS = [{"id":1,"nome":"Saco plástico lixo preto","categoria":"LIMPEZA E COZINHA","unidade":"Item","quantity":0,"minQuantity":1},{"id":2,"nome":"Papel toalha interfolha (Guri/Yuri)","categoria":"LIMPEZA E COZINHA","unidade":"Pacote","quantity":0,"minQuantity":4},{"id":3,"nome":"Papel toalha interfolha 2 dobras","categoria":"LIMPEZA E COZINHA","unidade":"Pacote","quantity":0,"minQuantity":1},{"id":4,"nome":"Limpador multiuso","categoria":"LIMPEZA E COZINHA","unidade":"Item","quantity":0,"minQuantity":1},{"id":5,"nome":"Saco plástico lixo 40L leitoso branco","categoria":"LIMPEZA E COZINHA","unidade":"Pacote","quantity":0,"minQuantity":1},{"id":6,"nome":"Desinfetante","categoria":"LIMPEZA E COZINHA","unidade":"Item","quantity":0,"minQuantity":1},{"id":7,"nome":"Luva de limpeza (par)","categoria":"LIMPEZA E COZINHA","unidade":"Item","quantity":0,"minQuantity":1},{"id":8,"nome":"Cloro","categoria":"LIMPEZA E COZINHA","unidade":"Item","quantity":0,"minQuantity":1},{"id":9,"nome":"Café","categoria":"LIMPEZA E COZINHA","unidade":"Item","quantity":0,"minQuantity":1},{"id":10,"nome":"Açúcar","categoria":"LIMPEZA E COZINHA","unidade":"Item","quantity":0,"minQuantity":1},{"id":11,"nome":"Filtro de café","categoria":"LIMPEZA E COZINHA","unidade":"Caixa","quantity":0,"minQuantity":1},{"id":12,"nome":"Detergente neutro","categoria":"LIMPEZA E COZINHA","unidade":"Item","quantity":0,"minQuantity":1},{"id":13,"nome":"Papel higiênico folha dupla","categoria":"LIMPEZA E COZINHA","unidade":"Item","quantity":0,"minQuantity":1},{"id":14,"nome":"PERFEX","categoria":"LIMPEZA E COZINHA","unidade":"Item","quantity":0,"minQuantity":1},{"id":15,"nome":"Pano de chão","categoria":"LIMPEZA E COZINHA","unidade":"Item","quantity":0,"minQuantity":1},{"id":16,"nome":"Copo descartável grande","categoria":"LIMPEZA E COZINHA","unidade":"Pacote","quantity":0,"minQuantity":1},{"id":17,"nome":"Espanadôr pequeno","categoria":"LIMPEZA E COZINHA","unidade":"Item","quantity":0,"minQuantity":1},{"id":18,"nome":"Esponja para limpeza de pia","categoria":"LIMPEZA E COZINHA","unidade":"Item","quantity":0,"minQuantity":1},{"id":19,"nome":"Água sanitária","categoria":"LIMPEZA E COZINHA","unidade":"Item","quantity":0,"minQuantity":1},{"id":20,"nome":"Álcool líquido (limpeza)","categoria":"LIMPEZA E COZINHA","unidade":"Item","quantity":0,"minQuantity":1},{"id":21,"nome":"Álcool em gel 70% (mãos)","categoria":"LIMPEZA E COZINHA","unidade":"Item","quantity":0,"minQuantity":1},{"id":22,"nome":"Cêra","categoria":"LIMPEZA E COZINHA","unidade":"Item","quantity":0,"minQuantity":1},{"id":23,"nome":"Caneta azul","categoria":"ESCRITÓRIO","unidade":"Item","quantity":0,"minQuantity":1},{"id":24,"nome":"Caneta preta","categoria":"ESCRITÓRIO","unidade":"Item","quantity":0,"minQuantity":1},{"id":25,"nome":"Caneta vermelha","categoria":"ESCRITÓRIO","unidade":"Item","quantity":0,"minQuantity":1},{"id":26,"nome":"Clips pequeno","categoria":"ESCRITÓRIO","unidade":"Caixa","quantity":0,"minQuantity":1},{"id":27,"nome":"Clips grande","categoria":"ESCRITÓRIO","unidade":"Caixa","quantity":0,"minQuantity":1},{"id":28,"nome":"Cola quente","categoria":"ESCRITÓRIO","unidade":"Item","quantity":0,"minQuantity":1},{"id":29,"nome":"Papel lembrete","categoria":"ESCRITÓRIO","unidade":"Caixa","quantity":0,"minQuantity":1},{"id":30,"nome":"Régua 50 cm","categoria":"ESCRITÓRIO","unidade":"Item","quantity":0,"minQuantity":1},{"id":31,"nome":"Fita 3M","categoria":"ESCRITÓRIO","unidade":"Item","quantity":0,"minQuantity":1},{"id":32,"nome":"POST IT","categoria":"ESCRITÓRIO","unidade":"Caixa","quantity":0,"minQuantity":1},{"id":33,"nome":"Fita crepe grossa","categoria":"ESCRITÓRIO","unidade":"Item","quantity":0,"minQuantity":1},{"id":34,"nome":"Fita crepe fina","categoria":"ESCRITÓRIO","unidade":"Item","quantity":0,"minQuantity":1},{"id":35,"nome":"Caneta Dourada Cis Trigel Metálica","categoria":"ESCRITÓRIO","unidade":"Item","quantity":0,"minQuantity":1},{"id":36,"nome":"Caneta Prata Cis Trigel Metálica","categoria":"ESCRITÓRIO","unidade":"Item","quantity":0,"minQuantity":1},{"id":37,"nome":"Alfinete","categoria":"ESCRITÓRIO","unidade":"Caixa","quantity":0,"minQuantity":1},{"id":38,"nome":"Grampos Galvanizados 26/6 c/5000 un.","categoria":"ESCRITÓRIO","unidade":"Caixa","quantity":0,"minQuantity":1},{"id":39,"nome":"Durex 45ml","categoria":"ESCRITÓRIO","unidade":"Item","quantity":0,"minQuantity":1},{"id":40,"nome":"Fita dupla face","categoria":"ESCRITÓRIO","unidade":"Item","quantity":0,"minQuantity":1},{"id":41,"nome":"Folha sulfite","categoria":"ESCRITÓRIO","unidade":"Pacote","quantity":0,"minQuantity":1},{"id":42,"nome":"Tesoura","categoria":"ESCRITÓRIO","unidade":"item","quantity":0,"minQuantity":1},{"id":43,"nome":"Nylon","categoria":"ESCRITÓRIO","unidade":"Item","quantity":0,"minQuantity":1},{"id":44,"nome":"Papel de seda - branca","categoria":"MATERIAL DE USO | EMBALAGENS","unidade":"Pacote","quantity":0,"minQuantity":1},{"id":45,"nome":"Papel de seda - dourada","categoria":"MATERIAL DE USO | EMBALAGENS","unidade":"Pacote","quantity":0,"minQuantity":1},{"id":46,"nome":"Papel de seda - verde escura","categoria":"MATERIAL DE USO | EMBALAGENS","unidade":"Pacote","quantity":0,"minQuantity":1},{"id":47,"nome":"Papel de seda - bege","categoria":"MATERIAL DE USO | EMBALAGENS","unidade":"Pacote","quantity":0,"minQuantity":1},{"id":48,"nome":"Fita verde","categoria":"MATERIAL DE USO | EMBALAGENS","unidade":"Item","quantity":0,"minQuantity":1},{"id":49,"nome":"Fita bege","categoria":"MATERIAL DE USO | EMBALAGENS","unidade":"Item","quantity":0,"minQuantity":1},{"id":50,"nome":"Fita ouro","categoria":"MATERIAL DE USO | EMBALAGENS","unidade":"Item","quantity":0,"minQuantity":1},{"id":51,"nome":"Sacola PP","categoria":"MATERIAL DE USO | EMBALAGENS","unidade":"Caixa","quantity":0,"minQuantity":1},{"id":52,"nome":"Sacola P","categoria":"MATERIAL DE USO | EMBALAGENS","unidade":"Caixa","quantity":0,"minQuantity":1},{"id":53,"nome":"Sacola M","categoria":"MATERIAL DE USO | EMBALAGENS","unidade":"Caixa","quantity":0,"minQuantity":1},{"id":54,"nome":"Sacola G","categoria":"MATERIAL DE USO | EMBALAGENS","unidade":"Caixa","quantity":0,"minQuantity":1},{"id":55,"nome":"Cesta verde","categoria":"MATERIAL DE USO | EMBALAGENS","unidade":"Item","quantity":0,"minQuantity":1},{"id":56,"nome":"Envelope","categoria":"MATERIAL DE USO | EMBALAGENS","unidade":"Item","quantity":0,"minQuantity":1},{"id":57,"nome":"Caixa Avatim P","categoria":"MATERIAL DE USO | EMBALAGENS","unidade":"Item","quantity":0,"minQuantity":1},{"id":58,"nome":"Sacola Gorgurão P","categoria":"MATERIAL DE USO | EMBALAGENS","unidade":"Caixa","quantity":0,"minQuantity":1},{"id":59,"nome":"Sacola Gorgurão M","categoria":"MATERIAL DE USO | EMBALAGENS","unidade":"Caixa","quantity":0,"minQuantity":1},{"id":60,"nome":"Sacola Gorgurão G","categoria":"MATERIAL DE USO | EMBALAGENS","unidade":"Caixa","quantity":0,"minQuantity":1}];
 
 const MONTH_NAMES_PT = ['Janeiro','Fevereiro','Marco','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 const DAY_NAMES_PT   = ['Dom','Seg','Ter','Qua','Qui','Sex','Sab'];
@@ -685,6 +777,9 @@ function App() {
     const [vendas, setVendas] = useState([]);
     const [vendedoras, setVendedoras] = useState([]);
     const [fechamentosLoja, setFechamentosLoja] = useState([]);
+    const [testers, setTesters] = useState([]);
+    const [insumosLoja, setInsumosLoja] = useState(INITIAL_INSUMOS);
+    const [movInsumos, setMovInsumos] = useState([]);
     const [syncStatus, setSyncStatus] = useState('loading');
     const [loading, setLoading] = useState(false);
     const unsubscribeRef = useRef([]);
@@ -713,7 +808,10 @@ function App() {
             const unsubVendas = window.TrocaDB.ouvirVendas(currentStore.id, (v) => setVendas(v));
             const unsubVendedoras = window.TrocaDB.ouvirVendedoras(currentStore.id, (v) => setVendedoras(v));
             const unsubFechLoja = window.TrocaDB.ouvirFechamentosLoja(currentStore.id, currentStore.name, (f) => setFechamentosLoja(f));
-            unsubscribeRef.current = [unsubExchanges, unsubInventory, unsubMetas, unsubVendas, unsubVendedoras, unsubFechLoja];
+            const unsubTesters = window.TrocaDB.ouvirTesters(currentStore.id, (t) => setTesters(t));
+            const unsubInsumos = window.TrocaDB.ouvirInsumos(currentStore.id, INITIAL_INSUMOS, (i) => setInsumosLoja(i));
+            const unsubMovs = window.TrocaDB.ouvirMovInsumos(currentStore.id, (m) => setMovInsumos(m));
+            unsubscribeRef.current = [unsubExchanges, unsubInventory, unsubMetas, unsubVendas, unsubVendedoras, unsubFechLoja, unsubTesters, unsubInsumos, unsubMovs];
         } catch(e) {
             console.error(e);
             setSyncStatus('offline');
@@ -727,6 +825,12 @@ function App() {
             unsubscribeRef.current.forEach(u => u && u());
             setCurrentStore(null); setCurrentPage('new-exchange'); setExchanges([]);
         }
+    };
+
+    const handleSaveInsumos = async (novos) => {
+        setInsumosLoja(novos);
+        try { await window.TrocaDB.salvarInsumos(currentStore.id, novos); }
+        catch (e) { console.warn('Erro ao salvar insumos:', e); }
     };
 
     const handleSaveVendedoras = async (novas) => {
@@ -774,6 +878,8 @@ function App() {
                             { id: 'history',      icon: '📋', label: 'Historico' },
                             { id: 'fechamento',   icon: '🧾', label: 'Fechamento' },
                             { id: 'inventory',    icon: '📦', label: 'Estoque' },
+                            { id: 'insumos',      icon: '🧺', label: 'Insumos' },
+                            { id: 'testers',      icon: '🧪', label: 'Testers' },
                             { id: 'reports',      icon: '📊', label: 'Relatorios' },
                         ].map(item => (
                             <li key={item.id} className="nav-item">
@@ -798,6 +904,10 @@ function App() {
                     <FechamentoPage storeId={currentStore.id} storeName={currentStore.name} exchanges={exchanges} metas={metas} vendedoras={vendedoras} fechamentos={fechamentosLoja} showToast={showToast} />}
                 {currentPage === 'inventory' &&
                     <InventoryPage inventory={inventory} onSave={handleSaveInventory} showToast={showToast} />}
+                {currentPage === 'insumos' &&
+                    <InsumosPage storeId={currentStore.id} insumos={insumosLoja} movimentos={movInsumos} onSave={handleSaveInsumos} showToast={showToast} />}
+                {currentPage === 'testers' &&
+                    <TestersPage storeId={currentStore.id} storeName={currentStore.name} inventory={inventory} testers={testers} vendedoras={vendedoras} showToast={showToast} />}
                 {currentPage === 'reports' &&
                     <ReportsPage exchanges={exchanges} storeName={currentStore.name} />}
             </main>
@@ -810,6 +920,9 @@ function AdminView({ onLogout, showToast }) {
     const [storeFechamentos, setStoreFechamentos] = useState({});
     const [storeVendas, setStoreVendas] = useState({});
     const [storeFretes, setStoreFretes] = useState({});
+    const [storeTesters, setStoreTesters] = useState({});
+    const [storeInsumos, setStoreInsumos] = useState({});
+    const [storeMovs, setStoreMovs] = useState({});
     const [metas, setMetas] = useState({});
     const [selectedStore, setSelectedStore] = useState('all');
     const [selectedExchange, setSelectedExchange] = useState(null);
@@ -841,6 +954,15 @@ function AdminView({ onLogout, showToast }) {
             }));
             unsubs.push(window.TrocaDB.ouvirTodosFretes(STORES, (storeId, fretes) => {
                 setStoreFretes(prev => ({ ...prev, [storeId]: fretes }));
+            }));
+            unsubs.push(window.TrocaDB.ouvirTodosTesters(STORES, (storeId, testers) => {
+                setStoreTesters(prev => ({ ...prev, [storeId]: testers }));
+            }));
+            unsubs.push(window.TrocaDB.ouvirTodosInsumos(STORES, INITIAL_INSUMOS, (storeId, itens) => {
+                setStoreInsumos(prev => ({ ...prev, [storeId]: itens }));
+            }));
+            unsubs.push(window.TrocaDB.ouvirTodasMovInsumos(STORES, (storeId, movs) => {
+                setStoreMovs(prev => ({ ...prev, [storeId]: movs }));
             }));
             unsubs.push(window.TrocaDB.ouvirMetas((m) => setMetas(m || {})));
         } catch(e) { console.error(e); setLoading(false); }
@@ -913,6 +1035,16 @@ function AdminView({ onLogout, showToast }) {
                             </div>
                         </li>
                         <li className="nav-item">
+                            <div className={`nav-link ${adminPage === 'testers' ? 'active' : ''}`} onClick={() => setAdminPage('testers')}>
+                                <span className="nav-icon">🧪</span>Testers
+                            </div>
+                        </li>
+                        <li className="nav-item">
+                            <div className={`nav-link ${adminPage === 'compras' ? 'active' : ''}`} onClick={() => setAdminPage('compras')}>
+                                <span className="nav-icon">🛒</span>Compras
+                            </div>
+                        </li>
+                        <li className="nav-item">
                             <div className={`nav-link ${adminPage === 'calendar' ? 'active' : ''}`} onClick={() => setAdminPage('calendar')}>
                                 <span className="nav-icon">🗓️</span>Calendario Global
                             </div>
@@ -941,6 +1073,12 @@ function AdminView({ onLogout, showToast }) {
                 )}
                 {adminPage === 'fretes' && (
                     <AdminFretesPage storeFretes={storeFretes} showToast={showToast} />
+                )}
+                {adminPage === 'testers' && (
+                    <AdminTestersPage storeTesters={storeTesters} aprovadorNome="Administrador" showToast={showToast} />
+                )}
+                {adminPage === 'compras' && (
+                    <AdminComprasPage storeInsumos={storeInsumos} storeMovs={storeMovs} showToast={showToast} />
                 )}
                 {adminPage === 'calendar' && (
                     <div>
@@ -1049,6 +1187,10 @@ function AdminView({ onLogout, showToast }) {
 function FinanceiroView({ onLogout, showToast }) {
     const [storeFechamentos, setStoreFechamentos] = useState({});
     const [storeExchanges, setStoreExchanges] = useState({});
+    const [storeTesters, setStoreTesters] = useState({});
+    const [storeInsumos, setStoreInsumos] = useState({});
+    const [storeMovs, setStoreMovs] = useState({});
+    const [finPage, setFinPage] = useState('fechamentos');
     const [loading, setLoading] = useState(true);
     const unsubRef = useRef(null);
 
@@ -1062,10 +1204,21 @@ function FinanceiroView({ onLogout, showToast }) {
             unsubs.push(window.TrocaDB.ouvirTodasLojas(STORES, (storeId, trocas) => {
                 setStoreExchanges(prev => ({ ...prev, [storeId]: trocas }));
             }));
+            unsubs.push(window.TrocaDB.ouvirTodosTesters(STORES, (storeId, testers) => {
+                setStoreTesters(prev => ({ ...prev, [storeId]: testers }));
+            }));
+            unsubs.push(window.TrocaDB.ouvirTodosInsumos(STORES, INITIAL_INSUMOS, (storeId, itens) => {
+                setStoreInsumos(prev => ({ ...prev, [storeId]: itens }));
+            }));
+            unsubs.push(window.TrocaDB.ouvirTodasMovInsumos(STORES, (storeId, movs) => {
+                setStoreMovs(prev => ({ ...prev, [storeId]: movs }));
+            }));
         } catch(e) { console.error(e); setLoading(false); }
         unsubRef.current = () => unsubs.forEach(u => u && u());
         return () => unsubRef.current && unsubRef.current();
     }, []);
+
+    const pendentesTesters = Object.values(storeTesters).flat().filter(t => t.status === 'pendente').length;
 
     return (
         <div className="app-container">
@@ -1084,8 +1237,18 @@ function FinanceiroView({ onLogout, showToast }) {
                 <nav>
                     <ul className="nav-menu">
                         <li className="nav-item">
-                            <div className="nav-link active">
+                            <div className={`nav-link ${finPage === 'fechamentos' ? 'active' : ''}`} onClick={() => setFinPage('fechamentos')}>
                                 <span className="nav-icon">🧾</span>Fechamento Caixa
+                            </div>
+                        </li>
+                        <li className="nav-item">
+                            <div className={`nav-link ${finPage === 'testers' ? 'active' : ''}`} onClick={() => setFinPage('testers')}>
+                                <span className="nav-icon">🧪</span>Testers{pendentesTesters > 0 && <span className="badge badge-pending" style={{ marginLeft:'auto', padding:'0.2rem 0.6rem', fontSize:'0.75rem' }}>{pendentesTesters}</span>}
+                            </div>
+                        </li>
+                        <li className="nav-item">
+                            <div className={`nav-link ${finPage === 'compras' ? 'active' : ''}`} onClick={() => setFinPage('compras')}>
+                                <span className="nav-icon">🛒</span>Compras
                             </div>
                         </li>
                     </ul>
@@ -1093,7 +1256,9 @@ function FinanceiroView({ onLogout, showToast }) {
                 <button className="logout-btn" onClick={onLogout}>🚪 Sair</button>
             </aside>
             <main className="main-content">
-                <AdminFechamentosPage storeFechamentos={storeFechamentos} storeExchanges={storeExchanges} metas={{}} showToast={showToast} />
+                {finPage === 'fechamentos' && <AdminFechamentosPage storeFechamentos={storeFechamentos} storeExchanges={storeExchanges} metas={{}} showToast={showToast} />}
+                {finPage === 'testers' && <AdminTestersPage storeTesters={storeTesters} aprovadorNome="Bruno (Financeiro)" showToast={showToast} />}
+                {finPage === 'compras' && <AdminComprasPage storeInsumos={storeInsumos} storeMovs={storeMovs} showToast={showToast} />}
             </main>
         </div>
     );
@@ -1988,7 +2153,7 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fech
     const [showPrint, setShowPrint] = useState(false);
     const [fechView, setFechView] = useState('dia');
     const [newVend, setNewVend] = useState({ nome:'', valor:'', atendimentos:'' });
-    const [newAcc, setNewAcc] = useState({ valorVenda:'', tipoVenda:'PIX', origem:'Delivery', valorItem:'', valorFrete:'', vendedora:'' });
+    const [newAcc, setNewAcc] = useState({ valorVenda:'', tipoVenda:'PIX', origem:'Delivery', valorFrete:'', vendedora:'' });
     const [newInt, setNewInt] = useState({ tipo:'Cancelamento', ticket:'', descricao:'' });
 
     useEffect(() => {
@@ -2018,6 +2183,8 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fech
 
     const { totalCredito, totalPix, totalNF, totalVendido, totalSaidas, saldoDinheiro, totalAcessorios, totalDelivery } = calcFechTotais(fech);
     const accPorTipo = ACC_TIPOS.map(t => ({ tipo: t, valor: (fech.acessorios || []).filter(a => a.tipoVenda === t).reduce((s, a) => s + num(a.totalPago), 0) })).filter(x => x.valor > 0);
+    const accVendas = (fech.acessorios || []).reduce((s, a) => s + (num(a.valorVenda) || num(a.valorItem)), 0);
+    const accFretes = (fech.acessorios || []).reduce((s, a) => s + num(a.valorFrete), 0);
     const pctBatido = objetivoDia > 0 ? (totalVendido / objetivoDia) * 100 : 0;
 
     const setF = (k, v) => setFech(p => ({ ...p, [k]: v }));
@@ -2028,13 +2195,13 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fech
         setNewVend({ nome:'', valor:'', atendimentos:'' });
     };
     const addAcc = () => {
-        if (!num(newAcc.valorItem) && !num(newAcc.valorFrete)) return;
+        if (!num(newAcc.valorVenda) && !num(newAcc.valorFrete)) { showToast('Informe o valor da venda ou do frete', 'error'); return; }
         setF('acessorios', [...(fech.acessorios || []), {
             id: Date.now(), tipoVenda: newAcc.tipoVenda, origem: newAcc.origem, vendedora: newAcc.vendedora.toUpperCase(),
-            valorVenda: num(newAcc.valorVenda), valorItem: num(newAcc.valorItem), valorFrete: num(newAcc.valorFrete),
-            totalPago: num(newAcc.valorItem) + num(newAcc.valorFrete)
+            valorVenda: num(newAcc.valorVenda), valorFrete: num(newAcc.valorFrete),
+            totalPago: num(newAcc.valorVenda) + num(newAcc.valorFrete)
         }]);
-        setNewAcc({ valorVenda:'', tipoVenda:'PIX', origem: newAcc.origem, valorItem:'', valorFrete:'', vendedora:'' });
+        setNewAcc({ valorVenda:'', tipoVenda:'PIX', origem: newAcc.origem, valorFrete:'', vendedora:'' });
     };
     const addInt = () => {
         if (!newInt.descricao && !newInt.ticket) return;
@@ -2239,28 +2406,26 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fech
                             <option>Delivery</option><option>Loja</option>
                         </select>
                     </div>
-                    <div className="form-group"><label className="form-label">Valor da Venda (PDV)</label><input type="text" inputMode="decimal" className="form-input" value={newAcc.valorVenda} onChange={e => setNewAcc({...newAcc, valorVenda: e.target.value})} placeholder="0,00" /></div>
+                    <div className="form-group"><label className="form-label">Valor da Venda (PDV) — produtos</label><input type="text" inputMode="decimal" className="form-input" value={newAcc.valorVenda} onChange={e => setNewAcc({...newAcc, valorVenda: e.target.value})} placeholder="0,00" /></div>
                     <div className="form-group"><label className="form-label">Tipo de Venda</label>
                         <select className="form-select" value={newAcc.tipoVenda} onChange={e => setNewAcc({...newAcc, tipoVenda: e.target.value})}>
                             {ACC_TIPOS.map(t => <option key={t}>{t}</option>)}
                         </select>
                     </div>
-                    <div className="form-group"><label className="form-label">Valor do Item</label><input type="text" inputMode="decimal" className="form-input" value={newAcc.valorItem} onChange={e => setNewAcc({...newAcc, valorItem: e.target.value})} placeholder="0,00" /></div>
-                    <div className="form-group"><label className="form-label">Valor do Frete</label><input type="text" inputMode="decimal" className="form-input" value={newAcc.valorFrete} onChange={e => setNewAcc({...newAcc, valorFrete: e.target.value})} placeholder="0,00" /></div>
+                    <div className="form-group"><label className="form-label">Valor do Frete — só a entrega</label><input type="text" inputMode="decimal" className="form-input" value={newAcc.valorFrete} onChange={e => setNewAcc({...newAcc, valorFrete: e.target.value})} placeholder="0,00" /></div>
                     <div className="form-group"><label className="form-label">Vendedora</label><input className="form-input" value={newAcc.vendedora} onChange={e => setNewAcc({...newAcc, vendedora: e.target.value})} placeholder="Nome" list="vendedoras-list" /></div>
                     <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}><button type="button" className="btn btn-primary" onClick={addAcc} style={{ width:'100%' }}>➕</button></div>
                 </div>
                 {(fech.acessorios || []).length > 0 && (
                     <div className="table-container">
                         <table className="table">
-                            <thead><tr><th>Origem</th><th>Venda (PDV)</th><th>Tipo</th><th>Item</th><th>Frete</th><th>Total Pago</th><th>Vendedora</th><th></th></tr></thead>
+                            <thead><tr><th>Origem</th><th>Venda (PDV)</th><th>Tipo</th><th>Frete</th><th>Total<br/><span style={{ fontWeight:'400', textTransform:'none', fontSize:'0.72rem' }}>(venda + frete)</span></th><th>Vendedora</th><th></th></tr></thead>
                             <tbody>
                                 {(fech.acessorios || []).map(a => (
                                     <tr key={a.id}>
                                         <td><span className={a.origem === 'Delivery' ? 'badge badge-pending' : 'badge badge-confirmed'} style={{ padding:'0.25rem 0.6rem', fontSize:'0.78rem' }}>{a.origem === 'Delivery' ? '🛵 Delivery' : '🏪 Loja'}</span></td>
-                                        <td>{fmt(a.valorVenda)}</td>
+                                        <td>{fmt(num(a.valorVenda) || num(a.valorItem))}</td>
                                         <td>{a.tipoVenda}</td>
-                                        <td>{fmt(a.valorItem)}</td>
                                         <td>{fmt(a.valorFrete)}</td>
                                         <td style={{ fontWeight:'700', color:'var(--accent)' }}>{fmt(a.totalPago)}</td>
                                         <td>{a.vendedora || '-'}</td>
@@ -2276,8 +2441,10 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fech
                         {accPorTipo.map(x => (
                             <div key={x.tipo} className="cal-summary-item"><span className="cal-summary-value" style={{ fontSize:'1.15rem' }}>{fmt(x.valor)}</span><div className="cal-summary-label">{x.tipo}</div></div>
                         ))}
-                        <div className="cal-summary-item" style={{ border:'1px solid var(--warning)' }}><span className="cal-summary-value" style={{ fontSize:'1.15rem', color:'var(--warning)' }}>{fmt(totalDelivery)}</span><div className="cal-summary-label">🛵 Total Delivery</div></div>
-                        <div className="cal-summary-item" style={{ border:'1px solid var(--primary)' }}><span className="cal-summary-value" style={{ fontSize:'1.15rem', color:'var(--primary)' }}>{fmt(totalAcessorios)}</span><div className="cal-summary-label">💰 Total da Seção</div></div>
+                        <div className="cal-summary-item"><span className="cal-summary-value" style={{ fontSize:'1.15rem' }}>{fmt(accVendas)}</span><div className="cal-summary-label">🧾 Só Vendas (PDV)</div></div>
+                        <div className="cal-summary-item"><span className="cal-summary-value" style={{ fontSize:'1.15rem' }}>{fmt(accFretes)}</span><div className="cal-summary-label">🚚 Só Fretes</div></div>
+                        <div className="cal-summary-item" style={{ border:'1px solid var(--warning)' }}><span className="cal-summary-value" style={{ fontSize:'1.15rem', color:'var(--warning)' }}>{fmt(totalDelivery)}</span><div className="cal-summary-label">🛵 Total Delivery (venda + frete)</div></div>
+                        <div className="cal-summary-item" style={{ border:'1px solid var(--primary)' }}><span className="cal-summary-value" style={{ fontSize:'1.15rem', color:'var(--primary)' }}>{fmt(totalAcessorios)}</span><div className="cal-summary-label">💰 Total da Seção (venda + frete)</div></div>
                     </div>
                 )}
             </div>
@@ -2410,10 +2577,11 @@ function PrintFechamento({ storeName, date, fech, trocasDoDia, valorTrocas, valo
                         <hr className="receipt-divider" />
                         <div className="receipt-section-title">DELIVERY, FRETE, BANDEJAS, CAIXAS E ACESSÓRIOS</div>
                         {(fech.acessorios || []).map(a => (
-                            <div key={a.id} className="receipt-item"><span>{a.origem === 'Delivery' ? '[DELIVERY] ' : '[LOJA] '}{a.tipoVenda}{a.vendedora ? ' • ' + a.vendedora : ''} (item {fmt(a.valorItem)} + frete {fmt(a.valorFrete)})</span><strong>{fmt(a.totalPago)}</strong></div>
+                            <div key={a.id} className="receipt-item"><span>{a.origem === 'Delivery' ? '[DELIVERY] ' : '[LOJA] '}{a.tipoVenda}{a.vendedora ? ' • ' + a.vendedora : ''} (venda {fmt(num(a.valorVenda) || num(a.valorItem))} + frete {fmt(num(a.valorFrete))})</span><strong>{fmt(a.totalPago)}</strong></div>
                         ))}
-                        <div className="receipt-item"><span>Total Delivery</span><strong>{fmt((fech.acessorios || []).filter(a => a.origem === 'Delivery').reduce((s, a) => s + num(a.totalPago), 0))}</strong></div>
-                        <div className="receipt-total"><span>TOTAL DA SEÇÃO</span><span>{fmt((fech.acessorios || []).reduce((s, a) => s + num(a.totalPago), 0))}</span></div>
+                        <div className="receipt-item"><span>Só Vendas (PDV)</span><strong>{fmt((fech.acessorios || []).reduce((s, a) => s + (num(a.valorVenda) || num(a.valorItem)), 0))}</strong></div>
+                        <div className="receipt-item"><span>Só Fretes</span><strong>{fmt((fech.acessorios || []).reduce((s, a) => s + num(a.valorFrete), 0))}</strong></div>
+                        <div className="receipt-total"><span>TOTAL DA SEÇÃO (VENDA + FRETE)</span><span>{fmt((fech.acessorios || []).reduce((s, a) => s + num(a.totalPago), 0))}</span></div>
                     </>
                 )}
                 <hr className="receipt-divider" />
@@ -2568,7 +2736,7 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
             XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(deliveriesPeriodo.map(a => ({
                 'Data': a.date, 'Loja': a.storeName || fixedStoreName || '', 'Origem': a.origem || '',
                 'Vendedora Responsavel': a.vendedora || '', 'Tipo de Venda': a.tipoVenda || '',
-                'Venda (PDV)': num(a.valorVenda), 'Item': num(a.valorItem), 'Frete': num(a.valorFrete), 'Total Pago': num(a.totalPago)
+                'Venda PDV (R$)': num(a.valorVenda) || num(a.valorItem), 'Frete (R$)': num(a.valorFrete), 'Total Venda+Frete (R$)': num(a.totalPago)
             }))), 'Delivery-Acessorios');
         }
         XLSX.writeFile(wb, 'fechamentos-' + range[0] + '-a-' + range[1] + '.xlsx');
@@ -2584,25 +2752,25 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
             const k = a.storeName || fixedStoreName || '-';
             if (!porLojaMap[k]) porLojaMap[k] = { qtd: 0, itens: 0, fretes: 0, total: 0 };
             porLojaMap[k].qtd += 1;
-            porLojaMap[k].itens += num(a.valorItem);
+            porLojaMap[k].itens += num(a.valorVenda) || num(a.valorItem);
             porLojaMap[k].fretes += num(a.valorFrete);
             porLojaMap[k].total += num(a.totalPago);
         });
         const resumo = Object.entries(porLojaMap).sort((a, b) => b[1].total - a[1].total).map(([loja, d]) => ({
-            'Loja': loja, 'Qtd Deliveries': d.qtd, 'Total Itens (R$)': d.itens, 'Total Fretes (R$)': d.fretes, 'Total Delivery (R$)': d.total,
+            'Loja': loja, 'Qtd Deliveries': d.qtd, 'Total Vendas PDV (R$)': d.itens, 'Total Fretes (R$)': d.fretes, 'Total Delivery Venda+Frete (R$)': d.total,
             'Ticket Medio (R$)': d.qtd > 0 ? d.total / d.qtd : 0
         }));
         resumo.push({ 'Loja': 'TOTAL GERAL', 'Qtd Deliveries': soDelivery.length,
-            'Total Itens (R$)': soDelivery.reduce((s, a) => s + num(a.valorItem), 0),
+            'Total Vendas PDV (R$)': soDelivery.reduce((s, a) => s + (num(a.valorVenda) || num(a.valorItem)), 0),
             'Total Fretes (R$)': soDelivery.reduce((s, a) => s + num(a.valorFrete), 0),
-            'Total Delivery (R$)': soDelivery.reduce((s, a) => s + num(a.totalPago), 0),
+            'Total Delivery Venda+Frete (R$)': soDelivery.reduce((s, a) => s + num(a.totalPago), 0),
             'Ticket Medio (R$)': soDelivery.length > 0 ? soDelivery.reduce((s, a) => s + num(a.totalPago), 0) / soDelivery.length : 0 });
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumo), 'Delivery por Loja');
         // Aba 2: detalhado com responsavel
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(soDelivery.map(a => ({
             'Data': a.date, 'Loja': a.storeName || fixedStoreName || '', 'Vendedora Responsavel': a.vendedora || '',
-            'Tipo de Venda': a.tipoVenda || '', 'Venda (PDV)': num(a.valorVenda),
-            'Item (R$)': num(a.valorItem), 'Frete (R$)': num(a.valorFrete), 'Total Pago (R$)': num(a.totalPago)
+            'Tipo de Venda': a.tipoVenda || '', 'Venda PDV (R$)': num(a.valorVenda) || num(a.valorItem),
+            'Frete (R$)': num(a.valorFrete), 'Total Venda+Frete (R$)': num(a.totalPago)
         }))), 'Delivery Detalhado');
         XLSX.writeFile(wb, 'delivery-' + range[0] + '-a-' + range[1] + '.xlsx');
     };
@@ -2671,7 +2839,7 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
             <div className="stats-grid">
                 <div className="stat-card"><span className="stat-icon">💰</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.vendido)}</span><span className="stat-label">Total Vendido {totals.objetivo > 0 ? '(' + pctPeriodo.toFixed(0) + '% do objetivo)' : ''}</span></div>
                 <div className="stat-card"><span className="stat-icon">🔄</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.trocas)}</span><span className="stat-label">Trocas</span></div>
-                <div className="stat-card"><span className="stat-icon">🛵</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.delivery)}</span><span className="stat-label">Delivery (acessórios: {fmt(totals.acessorios)})</span></div>
+                <div className="stat-card"><span className="stat-icon">🛵</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.delivery)}</span><span className="stat-label">Delivery — venda + frete (seção toda: {fmt(totals.acessorios)})</span></div>
                 <div className="stat-card"><span className="stat-icon">📤</span><span className="stat-value" style={{ fontSize:'1.6rem', color:'var(--danger)' }}>{fmt(totals.sangria)}</span><span className="stat-label">Retirada de Sangria</span></div>
                 <div className="stat-card"><span className="stat-icon">🛍️</span><span className="stat-value" style={{ fontSize:'1.6rem', color:'var(--warning)' }}>{fmt(totals.usoCaixa)}</span><span className="stat-label">Uso de Caixa</span></div>
                 <div className="stat-card"><span className="stat-icon">🏦</span><span className="stat-value" style={{ fontSize:'1.6rem', color: totals.saldo >= 0 ? 'var(--success)' : 'var(--danger)' }}>{fmt(totals.saldo)}</span><span className="stat-label">Saldo em Dinheiro (abertura {fmt(totals.abertura)} incluída)</span></div>
@@ -2750,7 +2918,7 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
                     <h2 className="card-title">🛵 Delivery / Acessórios no Período — quem fez cada venda</h2>
                     <div className="table-container">
                         <table className="table">
-                            <thead><tr><th>Data</th><th>Loja</th><th>Origem</th><th>Vendedora</th><th>Tipo</th><th>Item</th><th>Frete</th><th>Total Pago</th></tr></thead>
+                            <thead><tr><th>Data</th><th>Loja</th><th>Origem</th><th>Vendedora</th><th>Tipo</th><th>Venda (PDV)</th><th>Frete</th><th>Total<br/><span style={{ fontWeight:'400', textTransform:'none', fontSize:'0.72rem' }}>(venda + frete)</span></th></tr></thead>
                             <tbody>
                                 {deliveriesPeriodo.map((a, idx) => (
                                     <tr key={idx}>
@@ -2759,7 +2927,7 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
                                         <td><span className={a.origem === 'Delivery' ? 'badge badge-pending' : 'badge badge-confirmed'} style={{ padding:'0.25rem 0.6rem', fontSize:'0.78rem' }}>{a.origem === 'Delivery' ? '🛵 Delivery' : '🏪 Loja'}</span></td>
                                         <td style={{ fontWeight:'700', color:'var(--accent)' }}>{a.vendedora || '⚠️ sem vendedora'}</td>
                                         <td>{a.tipoVenda || '-'}</td>
-                                        <td>{fmt(num(a.valorItem))}</td>
+                                        <td>{fmt(num(a.valorVenda) || num(a.valorItem))}</td>
                                         <td>{fmt(num(a.valorFrete))}</td>
                                         <td style={{ fontWeight:'700', color:'var(--success)' }}>{fmt(num(a.totalPago))}</td>
                                     </tr>
@@ -2890,7 +3058,7 @@ function FechDashboard({ filtered, totals }) {
                     <div className="card">
                         <h2 className="card-title">🛵 Delivery por Loja</h2>
                         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:'0.5rem', marginBottom:'1.25rem' }}>
-                            <span style={{ color:'var(--text-secondary)', fontSize:'0.9rem' }}>Total de Delivery no período</span>
+                            <span style={{ color:'var(--text-secondary)', fontSize:'0.9rem' }}>Total de Delivery no período (venda + frete)</span>
                             <span style={{ fontFamily:'Syne, sans-serif', fontWeight:'800', fontSize:'1.4rem', color:'var(--warning)' }}>{fmt(totalDeliv)} <span style={{ fontSize:'0.85rem', color:'var(--text-secondary)', fontWeight:'500' }}>({totals.vendido > 0 ? ((totalDeliv / totals.vendido) * 100).toFixed(1) : 0}% do vendido)</span></span>
                         </div>
                         {lista.map(l => (
@@ -2990,6 +3158,715 @@ function PrintAdminFechamentos({ filtered, totals, range, ranking, inters, store
                 )}
                 <div className="receipt-footer">Gerado em {new Date().toLocaleString('pt-BR')} - TrocaFacil</div>
             </div>
+        </div>
+    );
+}
+
+// ===================== ABERTURA DE TESTERS =====================
+function TestersPage({ storeId, storeName, inventory, testers, vendedoras, showToast }) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const [form, setForm] = useState({ date: todayStr, barcode: '', product: '', vendedora: '', motivo: '' });
+    const [saving, setSaving] = useState(false);
+    const [testerView, setTesterView] = useState('list');
+    const [statusFilter, setStatusFilter] = useState('all');
+    const today = new Date();
+    const [viewYear, setViewYear] = useState(today.getFullYear());
+    const [viewMonth, setViewMonth] = useState(today.getMonth());
+    const [selectedDay, setSelectedDay] = useState(null);
+
+    const setF = (k, v) => setForm(p => ({ ...p, [k]: v }));
+
+    const handleBarcode = (value) => {
+        const found = inventory.find(p => p.barcode === value.trim());
+        if (found) setForm(p => ({ ...p, barcode: value, product: found.product }));
+        else setF('barcode', value);
+    };
+    const handleProductName = (value) => {
+        const found = inventory.find(p => p.product === value);
+        setForm(p => ({ ...p, product: value, barcode: found ? found.barcode : p.barcode }));
+    };
+
+    const handleSolicitar = async () => {
+        if (!form.product) { showToast('Informe o produto', 'error'); return; }
+        if (!form.vendedora) { showToast('Selecione a vendedora', 'error'); return; }
+        setSaving(true);
+        try {
+            const found = inventory.find(p => p.product === form.product);
+            await window.TrocaDB.salvarTester(storeId, {
+                date: form.date, product: form.product, barcode: form.barcode || (found ? found.barcode : ''),
+                group: found ? found.group : '', vendedora: form.vendedora, motivo: form.motivo,
+                status: 'pendente', storeName
+            });
+            setForm({ date: form.date, barcode: '', product: '', vendedora: form.vendedora, motivo: '' });
+            showToast('Solicitação enviada para aprovação! 🧪');
+        } catch(e) { console.error(e); showToast('Erro ao enviar solicitação', 'error'); }
+        finally { setSaving(false); }
+    };
+
+    const handleDelete = async (t) => {
+        if (t.status !== 'pendente' && !confirm('Esta solicitação já foi decidida. Excluir mesmo assim?')) return;
+        if (t.status === 'pendente' && !confirm('Cancelar esta solicitação?')) return;
+        try { await window.TrocaDB.deletarTester(storeId, t.id); showToast('Solicitação removida'); }
+        catch { showToast('Erro ao remover', 'error'); }
+    };
+
+    const filtered = (testers || []).filter(t => statusFilter === 'all' || t.status === statusFilter);
+
+    const handleExport = () => {
+        if (!filtered.length) { alert('Nao ha solicitacoes'); return; }
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filtered.map(t => ({
+            'Data': t.date, 'Produto': t.product, 'Codigo Barras': t.barcode || '', 'Categoria': t.group || '',
+            'Vendedora': t.vendedora, 'Motivo': t.motivo || '',
+            'Status': t.status === 'pendente' ? 'Pendente' : t.status === 'aprovado' ? 'Aprovado' : 'Negado',
+            'Decidido por': t.aprovadoPor || '', 'Decidido em': t.decididoEm || ''
+        }))), 'Testers');
+        XLSX.writeFile(wb, 'testers-' + storeName.replace(/\s/g, '-') + '-' + todayStr + '.xlsx');
+    };
+
+    // Calendario
+    const testersByDay = useMemo(() => {
+        const map = {};
+        (testers || []).forEach(t => {
+            if (!t.date) return;
+            if (!map[t.date]) map[t.date] = [];
+            map[t.date].push(t);
+        });
+        return map;
+    }, [testers]);
+    const calendarDays = useMemo(() => {
+        const firstDay = new Date(viewYear, viewMonth, 1);
+        const lastDay = new Date(viewYear, viewMonth + 1, 0);
+        const days = [];
+        for (let i = firstDay.getDay() - 1; i >= 0; i--) days.push({ date: new Date(viewYear, viewMonth, -i), otherMonth: true });
+        for (let i = 1; i <= lastDay.getDate(); i++) days.push({ date: new Date(viewYear, viewMonth, i), otherMonth: false });
+        const rem = 7 - (days.length % 7);
+        if (rem < 7) for (let i = 1; i <= rem; i++) days.push({ date: new Date(viewYear, viewMonth + 1, i), otherMonth: true });
+        return days;
+    }, [viewYear, viewMonth]);
+    const prevMonth = () => { if (viewMonth === 0) { setViewYear(y => y-1); setViewMonth(11); } else setViewMonth(m => m-1); setSelectedDay(null); };
+    const nextMonth = () => { if (viewMonth === 11) { setViewYear(y => y+1); setViewMonth(0); } else setViewMonth(m => m+1); setSelectedDay(null); };
+    const monthTesters = (testers || []).filter(t => {
+        const d = parseDateKey(t.date);
+        return d && d.getFullYear() === viewYear && d.getMonth() === viewMonth;
+    });
+    const selectedKey = selectedDay ? dateKey(selectedDay) : null;
+    const selectedDayTesters = selectedKey ? (testersByDay[selectedKey] || []) : [];
+    const todayKey = dateKey(today);
+
+    const statusBadge = (s) => s === 'pendente'
+        ? <span className="badge badge-pending">🟡 Pendente</span>
+        : s === 'aprovado'
+            ? <span className="badge badge-confirmed">🟢 Aprovado</span>
+            : <span className="badge badge-danger">🔴 Negado</span>;
+
+    return (
+        <div>
+            <div className="header">
+                <h1 className="page-title">🧪 Abertura de Testers</h1>
+                <p className="page-subtitle">Solicite a abertura — o Bruno (Financeiro) recebe e autoriza</p>
+            </div>
+            <div className="card">
+                <h2 className="card-title">➕ Solicitar Abertura de Tester</h2>
+                <div className="form-row">
+                    <div className="form-group"><label className="form-label">Data *</label><input type="date" className="form-input" value={form.date} onChange={e => setF('date', e.target.value)} /></div>
+                    <div className="form-group"><label className="form-label">Código de Barras</label><input className="form-input" inputMode="numeric" value={form.barcode} onChange={e => handleBarcode(e.target.value)} placeholder="Bipe ou digite" /></div>
+                    <div className="form-group"><label className="form-label">Produto *</label><input className="form-input" value={form.product} onChange={e => handleProductName(e.target.value)} placeholder="Nome do produto" list="produtos-tester-list" /></div>
+                </div>
+                <datalist id="produtos-tester-list">{inventory.map(p => <option key={p.id} value={p.product} />)}</datalist>
+                <div className="form-row">
+                    <div className="form-group"><label className="form-label">Vendedora *</label>
+                        <select className="form-select" value={form.vendedora} onChange={e => setF('vendedora', e.target.value)}>
+                            <option value="">Selecione...</option>
+                            {(vendedoras || []).filter(v => !v.arquivada).map(v => <option key={v.id} value={v.nome}>{v.nome}</option>)}
+                        </select>
+                    </div>
+                    <div className="form-group"><label className="form-label">Motivo / Observação</label><input className="form-input" value={form.motivo} onChange={e => setF('motivo', e.target.value)} placeholder="Ex: tester anterior acabou / vazou" /></div>
+                    <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}><button className="btn btn-primary" onClick={handleSolicitar} disabled={saving} style={{ width:'100%' }}>{saving ? '⏳...' : '📨 Enviar p/ Aprovação'}</button></div>
+                </div>
+            </div>
+            <div className="view-toggle" style={{ maxWidth:'420px' }}>
+                <button className={`view-toggle-btn ${testerView === 'list' ? 'active' : ''}`} onClick={() => setTesterView('list')}>📋 Lista</button>
+                <button className={`view-toggle-btn ${testerView === 'calendar' ? 'active' : ''}`} onClick={() => setTesterView('calendar')}>🗓️ Calendário</button>
+            </div>
+            {testerView === 'calendar' && (
+                <div className="card">
+                    <div className="calendar-nav">
+                        <div style={{ display:'flex', gap:'0.5rem' }}>
+                            <button className="calendar-nav-btn" onClick={prevMonth}>‹</button>
+                            <button className="calendar-nav-btn" onClick={nextMonth}>›</button>
+                        </div>
+                        <div className="calendar-month-label">{MONTH_NAMES_PT[viewMonth]} {viewYear}</div>
+                        <div style={{ fontSize:'0.9rem', color:'var(--text-secondary)' }}>{monthTesters.length} solicitações</div>
+                    </div>
+                    <div className="calendar-summary-bar">
+                        <div className="cal-summary-item"><span className="cal-summary-value" style={{ color:'var(--warning)' }}>{monthTesters.filter(t => t.status === 'pendente').length}</span><div className="cal-summary-label">🟡 Pendentes</div></div>
+                        <div className="cal-summary-item"><span className="cal-summary-value" style={{ color:'var(--success)' }}>{monthTesters.filter(t => t.status === 'aprovado').length}</span><div className="cal-summary-label">🟢 Aprovados</div></div>
+                        <div className="cal-summary-item"><span className="cal-summary-value" style={{ color:'var(--danger)' }}>{monthTesters.filter(t => t.status === 'negado').length}</span><div className="cal-summary-label">🔴 Negados</div></div>
+                    </div>
+                    <div className="calendar-grid">
+                        {DAY_NAMES_PT.map(d => <div key={d} className="calendar-weekday">{d}</div>)}
+                        {calendarDays.map(({ date, otherMonth }, idx) => {
+                            const k = dateKey(date);
+                            const ts = testersByDay[k] || [];
+                            let cls = 'calendar-day';
+                            if (otherMonth) cls += ' other-month';
+                            if (ts.length > 0 && !otherMonth) cls += ' has-exchanges';
+                            if (k === todayKey) cls += ' today';
+                            if (k === selectedKey && !otherMonth) cls += ' selected';
+                            return (
+                                <div key={idx} className={cls} onClick={() => { if (!otherMonth && ts.length > 0) setSelectedDay(k === selectedKey ? null : date); }}>
+                                    <div className="day-number">{date.getDate()}{k === todayKey && <span className="day-today-dot"></span>}</div>
+                                    {!otherMonth && ts.slice(0, 2).map(t => (
+                                        <span key={t.id} className="day-exchange-pill" style={{ background: t.status === 'aprovado' ? 'linear-gradient(135deg, var(--success), #04b887)' : t.status === 'negado' ? 'linear-gradient(135deg, var(--danger), #c33055)' : 'linear-gradient(135deg, var(--warning), #e0b12e)', color: t.status === 'pendente' ? 'var(--bg-dark)' : 'white' }}>{t.product}</span>
+                                    ))}
+                                    {!otherMonth && ts.length > 2 && <span className="day-more-pill">+{ts.length - 2}</span>}
+                                </div>
+                            );
+                        })}
+                    </div>
+                    {selectedDay && selectedDayTesters.length > 0 && (
+                        <div className="cal-day-detail">
+                            <div className="cal-day-detail-title">
+                                <span>🧪 {selectedDay.toLocaleDateString('pt-BR', { weekday:'long', day:'numeric', month:'long' })}</span>
+                                <button className="cal-day-detail-close" onClick={() => setSelectedDay(null)}>×</button>
+                            </div>
+                            {selectedDayTesters.map(t => (
+                                <div key={t.id} className="cal-exchange-row" style={{ cursor:'default' }}>
+                                    <div>
+                                        <div style={{ fontWeight:'700' }}>{t.product}</div>
+                                        <div style={{ fontSize:'0.85rem', color:'var(--text-secondary)' }}>{t.vendedora}{t.motivo ? ' • ' + t.motivo : ''}</div>
+                                    </div>
+                                    {statusBadge(t.status)}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+            {testerView === 'list' && (
+                <div className="card">
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem', flexWrap:'wrap', gap:'1rem' }}>
+                        <h2 className="card-title" style={{ margin:0 }}>📋 Minhas Solicitações</h2>
+                        <div style={{ display:'flex', gap:'0.75rem', alignItems:'center' }}>
+                            <select className="form-select" style={{ width:'auto' }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                                <option value="all">Todas</option>
+                                <option value="pendente">🟡 Pendentes</option>
+                                <option value="aprovado">🟢 Aprovados</option>
+                                <option value="negado">🔴 Negados</option>
+                            </select>
+                            <button className="btn btn-success btn-small" onClick={handleExport}>📥 Relatório</button>
+                        </div>
+                    </div>
+                    {filtered.length > 0 ? (
+                        <div className="table-container">
+                            <table className="table">
+                                <thead><tr><th>Data</th><th>Produto</th><th>Vendedora</th><th>Motivo</th><th>Status</th><th>Decidido por</th><th></th></tr></thead>
+                                <tbody>
+                                    {filtered.map(t => (
+                                        <tr key={t.id}>
+                                            <td>{parseDateKey(t.date) ? parseDateKey(t.date).toLocaleDateString('pt-BR') : t.date}</td>
+                                            <td style={{ fontWeight:'600' }}>{t.product}</td>
+                                            <td>{t.vendedora}</td>
+                                            <td style={{ fontSize:'0.85rem', color:'var(--text-secondary)' }}>{t.motivo || '-'}</td>
+                                            <td>{statusBadge(t.status)}</td>
+                                            <td style={{ fontSize:'0.85rem', color:'var(--text-secondary)' }}>{t.aprovadoPor || '-'}</td>
+                                            <td><button className="btn btn-danger btn-small" onClick={() => handleDelete(t)}>🗑️</button></td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    ) : (
+                        <div className="empty-state"><div className="empty-state-icon">🧪</div><p>Nenhuma solicitação{statusFilter !== 'all' ? ' com este status' : ''}</p></div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function AdminTestersPage({ storeTesters, aprovadorNome, showToast }) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const [refMonth, setRefMonth] = useState(todayStr.slice(0, 7));
+    const [lojaFiltro, setLojaFiltro] = useState('all');
+    const [deciding, setDeciding] = useState(null);
+
+    const all = useMemo(() => Object.values(storeTesters).flat(), [storeTesters]);
+    const pendentes = useMemo(() => all.filter(t => t.status === 'pendente' && (lojaFiltro === 'all' || t.storeId === lojaFiltro))
+        .sort((a, b) => (a.date > b.date ? 1 : -1)), [all, lojaFiltro]);
+    const doMes = useMemo(() => all.filter(t => t.date && t.date.slice(0, 7) === refMonth && (lojaFiltro === 'all' || t.storeId === lojaFiltro))
+        .sort((a, b) => (b.date > a.date ? 1 : -1)), [all, refMonth, lojaFiltro]);
+
+    const decidir = async (t, status) => {
+        setDeciding(t.storeId + '-' + t.id);
+        try {
+            await window.TrocaDB.atualizarTester(t.storeId, t.id, {
+                status, aprovadoPor: aprovadorNome,
+                decididoEm: new Date().toLocaleString('pt-BR')
+            });
+            showToast(status === 'aprovado' ? 'Tester aprovado! 🟢' : 'Tester negado 🔴');
+        } catch(e) { console.error(e); showToast('Erro ao decidir', 'error'); }
+        finally { setDeciding(null); }
+    };
+
+    const handleExport = () => {
+        if (!doMes.length) { alert('Nao ha solicitacoes no mes'); return; }
+        const wb = XLSX.utils.book_new();
+        const porLojaMap = {};
+        doMes.forEach(t => {
+            const k = t.storeName || '-';
+            if (!porLojaMap[k]) porLojaMap[k] = { total: 0, aprovados: 0, negados: 0, pendentes: 0 };
+            porLojaMap[k].total += 1;
+            if (t.status === 'aprovado') porLojaMap[k].aprovados += 1;
+            else if (t.status === 'negado') porLojaMap[k].negados += 1;
+            else porLojaMap[k].pendentes += 1;
+        });
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(Object.entries(porLojaMap).map(([loja, d]) => ({
+            'Loja': loja, 'Total Solicitacoes': d.total, 'Aprovados': d.aprovados, 'Negados': d.negados, 'Pendentes': d.pendentes
+        }))), 'Testers por Loja');
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(doMes.map(t => ({
+            'Data': t.date, 'Loja': t.storeName, 'Produto': t.product, 'Codigo Barras': t.barcode || '',
+            'Categoria': t.group || '', 'Vendedora': t.vendedora, 'Motivo': t.motivo || '',
+            'Status': t.status, 'Decidido por': t.aprovadoPor || '', 'Decidido em': t.decididoEm || ''
+        }))), 'Detalhado');
+        XLSX.writeFile(wb, 'testers-' + refMonth + '.xlsx');
+    };
+
+    return (
+        <div>
+            <div className="header">
+                <h1 className="page-title">🧪 Aprovação de Testers</h1>
+                <p className="page-subtitle">As lojas solicitam — você autoriza ou nega</p>
+            </div>
+            <div className="card">
+                <div className="form-row">
+                    <div className="form-group"><label className="form-label">Mês (relatório)</label><input type="month" className="form-input" value={refMonth} onChange={e => setRefMonth(e.target.value)} /></div>
+                    <div className="form-group">
+                        <label className="form-label">Loja</label>
+                        <select className="form-select" value={lojaFiltro} onChange={e => setLojaFiltro(e.target.value)}>
+                            <option value="all">🏪 Todas as Lojas</option>
+                            {STORES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                    </div>
+                    <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}><button className="btn btn-success" onClick={handleExport} style={{ width:'100%' }}>📥 Relatório do Mês</button></div>
+                </div>
+            </div>
+            <div className="card" style={{ border: pendentes.length > 0 ? '2px solid var(--warning)' : undefined }}>
+                <h2 className="card-title">🟡 Aguardando sua Aprovação ({pendentes.length})</h2>
+                {pendentes.length > 0 ? pendentes.map(t => (
+                    <div key={t.storeId + '-' + t.id} className="item-card" style={{ flexWrap:'wrap', gap:'1rem' }}>
+                        <div className="item-info">
+                            <div className="item-description">{t.product}</div>
+                            <div className="item-condition">{parseDateKey(t.date) ? parseDateKey(t.date).toLocaleDateString('pt-BR') : t.date} • {t.storeName} • Vend: <strong>{t.vendedora}</strong>{t.motivo ? ' • ' + t.motivo : ''}</div>
+                        </div>
+                        <div style={{ display:'flex', gap:'0.5rem' }}>
+                            <button className="btn btn-success btn-small" disabled={deciding === t.storeId + '-' + t.id} onClick={() => decidir(t, 'aprovado')}>✅ Aprovar</button>
+                            <button className="btn btn-danger btn-small" disabled={deciding === t.storeId + '-' + t.id} onClick={() => decidir(t, 'negado')}>❌ Negar</button>
+                        </div>
+                    </div>
+                )) : (
+                    <div style={{ color:'var(--text-secondary)' }}>Nenhuma solicitação pendente 🎉</div>
+                )}
+            </div>
+            <div className="card">
+                <h2 className="card-title">📋 Solicitações de {refMonth.split('-')[1]}/{refMonth.split('-')[0]}</h2>
+                {doMes.length > 0 ? (
+                    <div className="table-container">
+                        <table className="table">
+                            <thead><tr><th>Data</th><th>Loja</th><th>Produto</th><th>Vendedora</th><th>Motivo</th><th>Status</th><th>Decidido por</th></tr></thead>
+                            <tbody>
+                                {doMes.map(t => (
+                                    <tr key={t.storeId + '-' + t.id}>
+                                        <td>{parseDateKey(t.date) ? parseDateKey(t.date).toLocaleDateString('pt-BR') : t.date}</td>
+                                        <td style={{ fontSize:'0.85rem' }}>{t.storeName}</td>
+                                        <td style={{ fontWeight:'600' }}>{t.product}</td>
+                                        <td>{t.vendedora}</td>
+                                        <td style={{ fontSize:'0.85rem', color:'var(--text-secondary)' }}>{t.motivo || '-'}</td>
+                                        <td>{t.status === 'pendente' ? <span className="badge badge-pending">🟡 Pendente</span> : t.status === 'aprovado' ? <span className="badge badge-confirmed">🟢 Aprovado</span> : <span className="badge badge-danger">🔴 Negado</span>}</td>
+                                        <td style={{ fontSize:'0.85rem', color:'var(--text-secondary)' }}>{t.aprovadoPor || '-'}{t.decididoEm ? <div style={{ fontSize:'0.72rem' }}>{t.decididoEm}</div> : null}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <div className="empty-state"><div className="empty-state-icon">🧪</div><p>Nenhuma solicitação neste mês</p></div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+// ===================== INSUMOS / COMPRAS =====================
+function sugestaoCompra(item) {
+    const q = num(item.quantity), m = num(item.minQuantity);
+    if (q > m) return 0;
+    return Math.max(m * 2 - q, 1);
+}
+
+function InsumosPage({ storeId, insumos, movimentos, onSave, showToast }) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const [search, setSearch] = useState('');
+    const [novo, setNovo] = useState({ nome: '', categoria: '', unidade: 'Item', quantity: '', minQuantity: '' });
+    const [editingId, setEditingId] = useState(null);
+    const [editForm, setEditForm] = useState({});
+    const [movModal, setMovModal] = useState(null); // { item, tipo }
+    const [movQtd, setMovQtd] = useState('');
+    const [movObs, setMovObs] = useState('');
+    const [movSaving, setMovSaving] = useState(false);
+    const [movMonth, setMovMonth] = useState(todayStr.slice(0, 7));
+
+    const abrirMov = (item, tipo) => { setMovModal({ item, tipo }); setMovQtd(''); setMovObs(''); };
+
+    const confirmarMov = async () => {
+        const qtd = parseInt(movQtd);
+        if (!qtd || qtd <= 0) { showToast('Informe a quantidade', 'error'); return; }
+        const { item, tipo } = movModal;
+        const atual = num(item.quantity);
+        if (tipo === 'saida' && qtd > atual && !confirm('Saída maior que o estoque atual (' + atual + '). Continuar? O estoque ficará em 0.')) return;
+        setMovSaving(true);
+        try {
+            const novaQtd = tipo === 'entrada' ? atual + qtd : Math.max(0, atual - qtd);
+            await onSave(insumos.map(i => i.id === item.id ? { ...i, quantity: novaQtd } : i));
+            await window.TrocaDB.salvarMovInsumo(storeId, {
+                date: todayStr, itemId: item.id, itemNome: item.nome, categoria: item.categoria || '',
+                unidade: item.unidade || '', tipo, qtd, obs: movObs,
+                estoqueAntes: atual, estoqueDepois: novaQtd
+            });
+            showToast(tipo === 'entrada' ? '📥 Entrada registrada: +' + qtd : '📤 Saída registrada: −' + qtd);
+            setMovModal(null);
+        } catch(e) { console.error(e); showToast('Erro ao registrar movimentação', 'error'); }
+        finally { setMovSaving(false); }
+    };
+
+    const movsDoMes = useMemo(() => (movimentos || []).filter(m => m.date && m.date.slice(0, 7) === movMonth), [movimentos, movMonth]);
+    const totalEntradas = movsDoMes.filter(m => m.tipo === 'entrada').reduce((s, m) => s + num(m.qtd), 0);
+    const totalSaidas = movsDoMes.filter(m => m.tipo === 'saida').reduce((s, m) => s + num(m.qtd), 0);
+
+    const exportMovs = () => {
+        if (!movsDoMes.length) { alert('Nao ha movimentacoes no mes'); return; }
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(movsDoMes.map(m => ({
+            'Data': m.date, 'Categoria': m.categoria || '', 'Item': m.itemNome, 'Unidade': m.unidade || '',
+            'Tipo': m.tipo === 'entrada' ? 'ENTRADA' : 'SAIDA', 'Qtd': num(m.qtd),
+            'Estoque Antes': num(m.estoqueAntes), 'Estoque Depois': num(m.estoqueDepois), 'Observacao': m.obs || ''
+        }))), 'Movimentacoes');
+        XLSX.writeFile(wb, 'movimentacoes-insumos-' + movMonth + '.xlsx');
+    };
+
+    const filtrados = insumos.filter(i => {
+        const s = search.toLowerCase();
+        return (i.nome || '').toLowerCase().includes(s) || (i.categoria || '').toLowerCase().includes(s);
+    });
+    const precisaComprar = insumos.filter(i => num(i.quantity) <= num(i.minQuantity));
+
+    const addItem = async () => {
+        if (!novo.nome) { showToast('Informe o nome do item', 'error'); return; }
+        await onSave([...insumos, { id: Date.now(), nome: novo.nome, categoria: novo.categoria.toUpperCase(), unidade: novo.unidade || 'Item', quantity: parseInt(novo.quantity || 0), minQuantity: parseInt(novo.minQuantity || 1) }]);
+        setNovo({ nome: '', categoria: '', unidade: 'Item', quantity: '', minQuantity: '' });
+        showToast('Item cadastrado ✅');
+    };
+    const saveEdit = async () => {
+        await onSave(insumos.map(i => i.id === editingId ? { ...editForm, quantity: parseInt(editForm.quantity || 0), minQuantity: parseInt(editForm.minQuantity || 1) } : i));
+        setEditingId(null);
+        showToast('Item atualizado ✅');
+    };
+    const deleteItem = async (id) => {
+        if (!confirm('Excluir este item de insumos?')) return;
+        await onSave(insumos.filter(i => i.id !== id));
+        showToast('Item removido');
+    };
+
+    return (
+        <div>
+            <div className="header">
+                <h1 className="page-title">🧺 Insumos da Loja</h1>
+                <p className="page-subtitle">Mantenha as quantidades em dia — o Bruno vê o que precisa ser comprado</p>
+            </div>
+            <div className="stats-grid">
+                <div className="stat-card"><span className="stat-icon">🧺</span><span className="stat-value">{insumos.length}</span><span className="stat-label">Itens Cadastrados</span></div>
+                <div className="stat-card"><span className="stat-icon">✅</span><span className="stat-value">{insumos.filter(i => num(i.quantity) > num(i.minQuantity)).length}</span><span className="stat-label">Em Dia</span></div>
+                <div className="stat-card"><span className="stat-icon">🛒</span><span className="stat-value" style={{ color: precisaComprar.length > 0 ? 'var(--danger)' : 'var(--success)' }}>{precisaComprar.length}</span><span className="stat-label">Precisam de Compra</span></div>
+            </div>
+            {precisaComprar.length > 0 && (
+                <div className="card" style={{ border:'2px solid var(--warning)' }}>
+                    <h2 className="card-title">🛒 Precisa Comprar</h2>
+                    <div className="table-container">
+                        <table className="table">
+                            <thead><tr><th>Categoria</th><th>Item</th><th>Unidade</th><th>Atual</th><th>Mínimo</th><th>Comprar (sugestão)</th></tr></thead>
+                            <tbody>
+                                {precisaComprar.map(i => (
+                                    <tr key={i.id}>
+                                        <td style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>{i.categoria || '-'}</td>
+                                        <td style={{ fontWeight:'600' }}>{i.nome}</td>
+                                        <td>{i.unidade || '-'}</td>
+                                        <td style={{ fontWeight:'700', color: num(i.quantity) === 0 ? 'var(--danger)' : 'var(--warning)' }}>{num(i.quantity)}</td>
+                                        <td>{num(i.minQuantity)}</td>
+                                        <td style={{ fontWeight:'800', color:'var(--primary)' }}>{sugestaoCompra(i)} {i.unidade || ''}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+            <div className="card">
+                <h2 className="card-title">➕ Cadastrar Item</h2>
+                <div className="form-row">
+                    <div className="form-group"><input className="form-input" placeholder="Nome do item *" value={novo.nome} onChange={e => setNovo({...novo, nome: e.target.value})} /></div>
+                    <div className="form-group"><input className="form-input" placeholder="Categoria (ex: LIMPEZA)" value={novo.categoria} onChange={e => setNovo({...novo, categoria: e.target.value})} /></div>
+                    <div className="form-group">
+                        <select className="form-select" value={novo.unidade} onChange={e => setNovo({...novo, unidade: e.target.value})}>
+                            <option>Item</option><option>Pacote</option><option>Caixa</option><option>Rolo</option><option>Litro</option><option>Kg</option>
+                        </select>
+                    </div>
+                    <div className="form-group"><input type="number" className="form-input" placeholder="Qtd atual" value={novo.quantity} onChange={e => setNovo({...novo, quantity: e.target.value})} /></div>
+                    <div className="form-group"><input type="number" className="form-input" placeholder="Mínimo" value={novo.minQuantity} onChange={e => setNovo({...novo, minQuantity: e.target.value})} /></div>
+                    <div className="form-group"><button className="btn btn-success" onClick={addItem} style={{ width:'100%' }}>➕ Cadastrar</button></div>
+                </div>
+            </div>
+            <div className="card">
+                <div className="form-group" style={{ marginBottom:'1.5rem' }}>
+                    <input className="form-input" placeholder="🔍 Buscar insumo..." value={search} onChange={e => setSearch(e.target.value)} />
+                </div>
+                <div className="table-container">
+                    <table className="table">
+                        <thead><tr><th>Categoria</th><th>Item</th><th>Unid.</th><th>Qtd</th><th>Mínimo</th><th>Status</th><th>Ações</th></tr></thead>
+                        <tbody>
+                            {filtrados.map(i => {
+                                const q = num(i.quantity), m = num(i.minQuantity);
+                                return (
+                                    <tr key={i.id}>
+                                        <td style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>{i.categoria || '-'}</td>
+                                        <td>{editingId === i.id ? <input className="form-input" value={editForm.nome} onChange={e => setEditForm({...editForm, nome: e.target.value})} /> : <strong>{i.nome}</strong>}</td>
+                                        <td>{i.unidade || '-'}</td>
+                                        <td>{editingId === i.id ? <input type="number" className="form-input" style={{ width:'80px' }} value={editForm.quantity} onChange={e => setEditForm({...editForm, quantity: e.target.value})} /> : <span style={{ fontWeight:'700' }}>{q}</span>}</td>
+                                        <td>{editingId === i.id ? <input type="number" className="form-input" style={{ width:'80px' }} value={editForm.minQuantity} onChange={e => setEditForm({...editForm, minQuantity: e.target.value})} /> : m}</td>
+                                        <td><span className={`stock-badge ${q === 0 ? 'out-of-stock' : q <= m ? 'low-stock' : 'in-stock'}`}>{q === 0 ? '❌ Esgotado' : q <= m ? '⚠️ Comprar' : '✅ OK'}</span></td>
+                                        <td>
+                                            {editingId === i.id ? (
+                                                <div style={{ display:'flex', gap:'0.5rem' }}>
+                                                    <button className="btn btn-success btn-small" onClick={saveEdit}>✅</button>
+                                                    <button className="btn btn-secondary btn-small" onClick={() => setEditingId(null)}>❌</button>
+                                                </div>
+                                            ) : (
+                                                <div style={{ display:'flex', gap:'0.5rem', flexWrap:'wrap' }}>
+                                                    <button className="btn btn-success btn-small" title="Registrar entrada" onClick={() => abrirMov(i, 'entrada')}>📥 Entrada</button>
+                                                    <button className="btn btn-warning btn-small" title="Registrar saída" onClick={() => abrirMov(i, 'saida')}>📤 Saída</button>
+                                                    <button className="btn btn-primary btn-small" onClick={() => { setEditingId(i.id); setEditForm(i); }}>✏️</button>
+                                                    <button className="btn btn-danger btn-small" onClick={() => deleteItem(i.id)}>🗑️</button>
+                                                </div>
+                                            )}
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div className="card">
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem', flexWrap:'wrap', gap:'1rem' }}>
+                    <h2 className="card-title" style={{ margin:0 }}>📜 Movimentações (Entradas e Saídas)</h2>
+                    <div style={{ display:'flex', gap:'0.75rem', alignItems:'center' }}>
+                        <input type="month" className="form-input" style={{ width:'auto' }} value={movMonth} onChange={e => setMovMonth(e.target.value)} />
+                        <button className="btn btn-success btn-small" onClick={exportMovs}>📥 Excel</button>
+                    </div>
+                </div>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:'1rem', marginBottom:'1.25rem' }}>
+                    <div className="cal-summary-item"><span className="cal-summary-value" style={{ color:'var(--success)' }}>+{totalEntradas}</span><div className="cal-summary-label">📥 Entradas no mês (unid.)</div></div>
+                    <div className="cal-summary-item"><span className="cal-summary-value" style={{ color:'var(--danger)' }}>−{totalSaidas}</span><div className="cal-summary-label">📤 Saídas no mês (unid.)</div></div>
+                    <div className="cal-summary-item"><span className="cal-summary-value">{movsDoMes.length}</span><div className="cal-summary-label">📜 Lançamentos</div></div>
+                </div>
+                {movsDoMes.length > 0 ? (
+                    <div className="table-container">
+                        <table className="table">
+                            <thead><tr><th>Data</th><th>Item</th><th>Tipo</th><th>Qtd</th><th>Estoque (antes → depois)</th><th>Obs</th></tr></thead>
+                            <tbody>
+                                {movsDoMes.map(m => (
+                                    <tr key={m.id}>
+                                        <td>{parseDateKey(m.date) ? parseDateKey(m.date).toLocaleDateString('pt-BR') : m.date}</td>
+                                        <td style={{ fontWeight:'600' }}>{m.itemNome}</td>
+                                        <td>{m.tipo === 'entrada' ? <span className="badge badge-confirmed">📥 Entrada</span> : <span className="badge badge-danger">📤 Saída</span>}</td>
+                                        <td style={{ fontWeight:'800', color: m.tipo === 'entrada' ? 'var(--success)' : 'var(--danger)' }}>{m.tipo === 'entrada' ? '+' : '−'}{num(m.qtd)}</td>
+                                        <td style={{ color:'var(--text-secondary)' }}>{num(m.estoqueAntes)} → <strong style={{ color:'var(--text-primary)' }}>{num(m.estoqueDepois)}</strong></td>
+                                        <td style={{ fontSize:'0.85rem', color:'var(--text-secondary)' }}>{m.obs || '-'}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <div style={{ color:'var(--text-secondary)' }}>Nenhuma movimentação neste mês.</div>
+                )}
+            </div>
+            {movModal && (
+                <div className="modal-overlay" onClick={() => setMovModal(null)}>
+                    <div className="modal-content" style={{ maxWidth:'440px' }} onClick={e => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h2 className="modal-title">{movModal.tipo === 'entrada' ? '📥 Entrada' : '📤 Saída'}</h2>
+                            <button className="modal-close" onClick={() => setMovModal(null)}>×</button>
+                        </div>
+                        <div className="modal-body">
+                            <div style={{ marginBottom:'1rem' }}>
+                                <div style={{ fontWeight:'700', fontSize:'1.05rem' }}>{movModal.item.nome}</div>
+                                <div style={{ fontSize:'0.9rem', color:'var(--text-secondary)' }}>Estoque atual: <strong>{num(movModal.item.quantity)} {movModal.item.unidade || ''}</strong></div>
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">Quantidade *</label>
+                                <input type="number" min="1" className="form-input" value={movQtd} onChange={e => setMovQtd(e.target.value)} autoFocus onKeyDown={e => { if (e.key === 'Enter') confirmarMov(); }} />
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">Observação</label>
+                                <input className="form-input" value={movObs} onChange={e => setMovObs(e.target.value)} placeholder={movModal.tipo === 'entrada' ? 'Ex: compra chegou / transferência' : 'Ex: consumo da loja / quebra'} />
+                            </div>
+                            {movQtd > 0 && (
+                                <div style={{ padding:'0.75rem 1rem', background:'var(--bg-dark)', borderRadius:'10px', marginBottom:'1rem', fontSize:'0.95rem' }}>
+                                    Novo estoque: <strong style={{ color: movModal.tipo === 'entrada' ? 'var(--success)' : 'var(--warning)' }}>{movModal.tipo === 'entrada' ? num(movModal.item.quantity) + parseInt(movQtd || 0) : Math.max(0, num(movModal.item.quantity) - parseInt(movQtd || 0))} {movModal.item.unidade || ''}</strong>
+                                </div>
+                            )}
+                            <button className={`btn ${movModal.tipo === 'entrada' ? 'btn-success' : 'btn-warning'}`} style={{ width:'100%' }} onClick={confirmarMov} disabled={movSaving}>
+                                {movSaving ? '⏳...' : movModal.tipo === 'entrada' ? '📥 Confirmar Entrada' : '📤 Confirmar Saída'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function AdminComprasPage({ storeInsumos, storeMovs, showToast }) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const [lojaFiltro, setLojaFiltro] = useState('all');
+    const [movMonth, setMovMonth] = useState(todayStr.slice(0, 7));
+
+    const movsDoMes = useMemo(() => {
+        return Object.values(storeMovs || {}).flat()
+            .filter(m => m.date && m.date.slice(0, 7) === movMonth && (lojaFiltro === 'all' || m.storeId === lojaFiltro))
+            .sort((a, b) => (b.date > a.date ? 1 : -1));
+    }, [storeMovs, movMonth, lojaFiltro]);
+    const totEnt = movsDoMes.filter(m => m.tipo === 'entrada').reduce((s, m) => s + num(m.qtd), 0);
+    const totSai = movsDoMes.filter(m => m.tipo === 'saida').reduce((s, m) => s + num(m.qtd), 0);
+
+    const exportMovs = () => {
+        if (!movsDoMes.length) { alert('Nao ha movimentacoes no mes'); return; }
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(movsDoMes.map(m => ({
+            'Data': m.date, 'Loja': m.storeName, 'Categoria': m.categoria || '', 'Item': m.itemNome,
+            'Tipo': m.tipo === 'entrada' ? 'ENTRADA' : 'SAIDA', 'Qtd': num(m.qtd),
+            'Estoque Antes': num(m.estoqueAntes), 'Estoque Depois': num(m.estoqueDepois), 'Observacao': m.obs || ''
+        }))), 'Movimentacoes');
+        XLSX.writeFile(wb, 'movimentacoes-insumos-' + movMonth + '.xlsx');
+    };
+
+    const porLoja = useMemo(() => {
+        return STORES.map(s => {
+            const itens = (storeInsumos[s.id] || []).filter(i => num(i.quantity) <= num(i.minQuantity));
+            return { id: s.id, name: s.name, itens };
+        }).filter(l => (lojaFiltro === 'all' || l.id === lojaFiltro));
+    }, [storeInsumos, lojaFiltro]);
+
+    const totalItens = porLoja.reduce((s, l) => s + l.itens.length, 0);
+
+    const handleExport = () => {
+        const linhas = porLoja.flatMap(l => l.itens.map(i => ({
+            'Loja': l.name, 'Categoria': i.categoria || '', 'Item': i.nome, 'Unidade': i.unidade || '',
+            'Estoque Atual': num(i.quantity), 'Estoque Minimo': num(i.minQuantity), 'Comprar (sugestao)': sugestaoCompra(i)
+        })));
+        if (!linhas.length) { alert('Nada para comprar 🎉'); return; }
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(porLoja.filter(l => l.itens.length > 0).map(l => ({
+            'Loja': l.name, 'Itens em Falta': l.itens.length,
+            'Unidades Sugeridas': l.itens.reduce((s, i) => s + sugestaoCompra(i), 0)
+        }))), 'Compras por Loja');
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(linhas), 'Lista de Compras');
+        XLSX.writeFile(wb, 'lista-compras-' + new Date().toISOString().split('T')[0] + '.xlsx');
+    };
+
+    return (
+        <div>
+            <div className="header">
+                <h1 className="page-title">🛒 Compras de Insumos</h1>
+                <p className="page-subtitle">As lojas alimentam o estoque — aqui aparece o que precisa ser comprado</p>
+            </div>
+            <div className="card">
+                <div className="form-row">
+                    <div className="form-group">
+                        <label className="form-label">Loja</label>
+                        <select className="form-select" value={lojaFiltro} onChange={e => setLojaFiltro(e.target.value)}>
+                            <option value="all">🏪 Todas as Lojas</option>
+                            {STORES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                    </div>
+                    <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}><button className="btn btn-success" onClick={handleExport} style={{ width:'100%' }}>📥 Exportar Lista de Compras</button></div>
+                </div>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                    <span style={{ color:'var(--text-secondary)' }}>Itens precisando de compra (todas as lojas filtradas)</span>
+                    <span style={{ fontFamily:'Syne, sans-serif', fontWeight:'800', fontSize:'1.5rem', color: totalItens > 0 ? 'var(--danger)' : 'var(--success)' }}>{totalItens}</span>
+                </div>
+            </div>
+            <div className="card">
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem', flexWrap:'wrap', gap:'1rem' }}>
+                    <h2 className="card-title" style={{ margin:0 }}>📜 Movimentações de Insumos</h2>
+                    <div style={{ display:'flex', gap:'0.75rem', alignItems:'center' }}>
+                        <input type="month" className="form-input" style={{ width:'auto' }} value={movMonth} onChange={e => setMovMonth(e.target.value)} />
+                        <button className="btn btn-success btn-small" onClick={exportMovs}>📥 Excel</button>
+                    </div>
+                </div>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:'1rem', marginBottom:'1.25rem' }}>
+                    <div className="cal-summary-item"><span className="cal-summary-value" style={{ color:'var(--success)' }}>+{totEnt}</span><div className="cal-summary-label">📥 Entradas no mês</div></div>
+                    <div className="cal-summary-item"><span className="cal-summary-value" style={{ color:'var(--danger)' }}>−{totSai}</span><div className="cal-summary-label">📤 Saídas no mês</div></div>
+                    <div className="cal-summary-item"><span className="cal-summary-value">{movsDoMes.length}</span><div className="cal-summary-label">📜 Lançamentos</div></div>
+                </div>
+                {movsDoMes.length > 0 ? (
+                    <div className="table-container">
+                        <table className="table">
+                            <thead><tr><th>Data</th><th>Loja</th><th>Item</th><th>Tipo</th><th>Qtd</th><th>Estoque</th><th>Obs</th></tr></thead>
+                            <tbody>
+                                {movsDoMes.map(m => (
+                                    <tr key={m.storeId + '-' + m.id}>
+                                        <td>{parseDateKey(m.date) ? parseDateKey(m.date).toLocaleDateString('pt-BR') : m.date}</td>
+                                        <td style={{ fontSize:'0.85rem' }}>{m.storeName}</td>
+                                        <td style={{ fontWeight:'600' }}>{m.itemNome}</td>
+                                        <td>{m.tipo === 'entrada' ? <span className="badge badge-confirmed">📥</span> : <span className="badge badge-danger">📤</span>}</td>
+                                        <td style={{ fontWeight:'800', color: m.tipo === 'entrada' ? 'var(--success)' : 'var(--danger)' }}>{m.tipo === 'entrada' ? '+' : '−'}{num(m.qtd)}</td>
+                                        <td style={{ color:'var(--text-secondary)', fontSize:'0.85rem' }}>{num(m.estoqueAntes)} → {num(m.estoqueDepois)}</td>
+                                        <td style={{ fontSize:'0.85rem', color:'var(--text-secondary)' }}>{m.obs || '-'}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <div style={{ color:'var(--text-secondary)' }}>Nenhuma movimentação neste mês.</div>
+                )}
+            </div>
+            {porLoja.map(l => (
+                <div key={l.id} className="card" style={{ border: l.itens.length > 0 ? '1px solid var(--warning)' : undefined }}>
+                    <h2 className="card-title">🏪 {l.name} — {l.itens.length > 0 ? l.itens.length + ' item(ns) para comprar' : 'tudo em dia ✅'}</h2>
+                    {l.itens.length > 0 && (
+                        <div className="table-container">
+                            <table className="table">
+                                <thead><tr><th>Categoria</th><th>Item</th><th>Unidade</th><th>Atual</th><th>Mínimo</th><th>Comprar</th></tr></thead>
+                                <tbody>
+                                    {l.itens.map(i => (
+                                        <tr key={i.id}>
+                                            <td style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>{i.categoria || '-'}</td>
+                                            <td style={{ fontWeight:'600' }}>{i.nome}</td>
+                                            <td>{i.unidade || '-'}</td>
+                                            <td style={{ fontWeight:'700', color: num(i.quantity) === 0 ? 'var(--danger)' : 'var(--warning)' }}>{num(i.quantity)}</td>
+                                            <td>{num(i.minQuantity)}</td>
+                                            <td style={{ fontWeight:'800', color:'var(--primary)' }}>{sugestaoCompra(i)} {i.unidade || ''}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            ))}
         </div>
     );
 }
