@@ -2140,9 +2140,11 @@ function calcFechTotais(f) {
     const totalSaidas = num(f.sangria) + num(f.usoCaixa);
     const abertura = num(f.abertura);
     const saldoDinheiro = abertura + num(f.dinheiro) - totalSaidas;
-    const totalAcessorios = (f.acessorios || []).reduce((s, a) => s + num(a.totalPago), 0);
-    const totalDelivery = (f.acessorios || []).filter(a => a.origem === 'Delivery').reduce((s, a) => s + num(a.totalPago), 0);
-    return { totalCredito, totalPix, totalNF, totalVendido, totalSaidas, abertura, saldoDinheiro, totalAcessorios, totalDelivery };
+    const vendaAcc = (a) => num(a.valorVenda) || num(a.valorItem);
+    const totalAcessorios = (f.acessorios || []).reduce((s, a) => s + vendaAcc(a), 0);
+    const totalDelivery = (f.acessorios || []).filter(a => a.origem === 'Delivery').reduce((s, a) => s + vendaAcc(a), 0);
+    const totalFretesAcc = (f.acessorios || []).reduce((s, a) => s + num(a.valorFrete), 0);
+    return { totalCredito, totalPix, totalNF, totalVendido, totalSaidas, abertura, saldoDinheiro, totalAcessorios, totalDelivery, totalFretesAcc };
 }
 
 function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fechamentos, showToast }) {
@@ -2182,7 +2184,7 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fech
     const objetivoDia = metaMensal > 0 ? metaMensal / diasNoMes : 0;
 
     const { totalCredito, totalPix, totalNF, totalVendido, totalSaidas, saldoDinheiro, totalAcessorios, totalDelivery } = calcFechTotais(fech);
-    const accPorTipo = ACC_TIPOS.map(t => ({ tipo: t, valor: (fech.acessorios || []).filter(a => a.tipoVenda === t).reduce((s, a) => s + num(a.totalPago), 0) })).filter(x => x.valor > 0);
+    const accPorTipo = ACC_TIPOS.map(t => ({ tipo: t, valor: (fech.acessorios || []).filter(a => a.tipoVenda === t).reduce((s, a) => s + (num(a.valorVenda) || num(a.valorItem)), 0) })).filter(x => x.valor > 0);
     const accVendas = (fech.acessorios || []).reduce((s, a) => s + (num(a.valorVenda) || num(a.valorItem)), 0);
     const accFretes = (fech.acessorios || []).reduce((s, a) => s + num(a.valorFrete), 0);
     const pctBatido = objetivoDia > 0 ? (totalVendido / objetivoDia) * 100 : 0;
@@ -2199,7 +2201,7 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fech
         setF('acessorios', [...(fech.acessorios || []), {
             id: Date.now(), tipoVenda: newAcc.tipoVenda, origem: newAcc.origem, vendedora: newAcc.vendedora.toUpperCase(),
             valorVenda: num(newAcc.valorVenda), valorFrete: num(newAcc.valorFrete),
-            totalPago: num(newAcc.valorVenda) + num(newAcc.valorFrete)
+            totalPago: num(newAcc.valorVenda)
         }]);
         setNewAcc({ valorVenda:'', tipoVenda:'PIX', origem: newAcc.origem, valorFrete:'', vendedora:'' });
     };
@@ -2419,15 +2421,14 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fech
                 {(fech.acessorios || []).length > 0 && (
                     <div className="table-container">
                         <table className="table">
-                            <thead><tr><th>Origem</th><th>Venda (PDV)</th><th>Tipo</th><th>Frete</th><th>Total<br/><span style={{ fontWeight:'400', textTransform:'none', fontSize:'0.72rem' }}>(venda + frete)</span></th><th>Vendedora</th><th></th></tr></thead>
+                            <thead><tr><th>Origem</th><th>Venda (PDV)</th><th>Tipo</th><th>Frete<br/><span style={{ fontWeight:'400', textTransform:'none', fontSize:'0.72rem' }}>(à parte — não soma na venda)</span></th><th>Vendedora</th><th></th></tr></thead>
                             <tbody>
                                 {(fech.acessorios || []).map(a => (
                                     <tr key={a.id}>
                                         <td><span className={a.origem === 'Delivery' ? 'badge badge-pending' : 'badge badge-confirmed'} style={{ padding:'0.25rem 0.6rem', fontSize:'0.78rem' }}>{a.origem === 'Delivery' ? '🛵 Delivery' : '🏪 Loja'}</span></td>
-                                        <td>{fmt(num(a.valorVenda) || num(a.valorItem))}</td>
+                                        <td style={{ fontWeight:'700', color:'var(--accent)' }}>{fmt(num(a.valorVenda) || num(a.valorItem))}</td>
                                         <td>{a.tipoVenda}</td>
-                                        <td>{fmt(a.valorFrete)}</td>
-                                        <td style={{ fontWeight:'700', color:'var(--accent)' }}>{fmt(a.totalPago)}</td>
+                                        <td style={{ color:'var(--text-secondary)' }}>{fmt(a.valorFrete)}</td>
                                         <td>{a.vendedora || '-'}</td>
                                         <td><button className="btn btn-danger btn-small" onClick={() => removeFrom('acessorios', a.id)}>🗑️</button></td>
                                     </tr>
@@ -2441,10 +2442,9 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fech
                         {accPorTipo.map(x => (
                             <div key={x.tipo} className="cal-summary-item"><span className="cal-summary-value" style={{ fontSize:'1.15rem' }}>{fmt(x.valor)}</span><div className="cal-summary-label">{x.tipo}</div></div>
                         ))}
-                        <div className="cal-summary-item"><span className="cal-summary-value" style={{ fontSize:'1.15rem' }}>{fmt(accVendas)}</span><div className="cal-summary-label">🧾 Só Vendas (PDV)</div></div>
-                        <div className="cal-summary-item"><span className="cal-summary-value" style={{ fontSize:'1.15rem' }}>{fmt(accFretes)}</span><div className="cal-summary-label">🚚 Só Fretes</div></div>
-                        <div className="cal-summary-item" style={{ border:'1px solid var(--warning)' }}><span className="cal-summary-value" style={{ fontSize:'1.15rem', color:'var(--warning)' }}>{fmt(totalDelivery)}</span><div className="cal-summary-label">🛵 Total Delivery (venda + frete)</div></div>
-                        <div className="cal-summary-item" style={{ border:'1px solid var(--primary)' }}><span className="cal-summary-value" style={{ fontSize:'1.15rem', color:'var(--primary)' }}>{fmt(totalAcessorios)}</span><div className="cal-summary-label">💰 Total da Seção (venda + frete)</div></div>
+                        <div className="cal-summary-item" style={{ border:'1px solid var(--warning)' }}><span className="cal-summary-value" style={{ fontSize:'1.15rem', color:'var(--warning)' }}>{fmt(totalDelivery)}</span><div className="cal-summary-label">🛵 Vendas Delivery (sem frete)</div></div>
+                        <div className="cal-summary-item" style={{ border:'1px solid var(--primary)' }}><span className="cal-summary-value" style={{ fontSize:'1.15rem', color:'var(--primary)' }}>{fmt(totalAcessorios)}</span><div className="cal-summary-label">💰 Total Vendas da Seção (sem frete)</div></div>
+                        <div className="cal-summary-item"><span className="cal-summary-value" style={{ fontSize:'1.15rem', color:'var(--text-secondary)' }}>{fmt(accFretes)}</span><div className="cal-summary-label">🚚 Fretes à parte (NÃO somam na venda)</div></div>
                     </div>
                 )}
             </div>
@@ -2577,11 +2577,10 @@ function PrintFechamento({ storeName, date, fech, trocasDoDia, valorTrocas, valo
                         <hr className="receipt-divider" />
                         <div className="receipt-section-title">DELIVERY, FRETE, BANDEJAS, CAIXAS E ACESSÓRIOS</div>
                         {(fech.acessorios || []).map(a => (
-                            <div key={a.id} className="receipt-item"><span>{a.origem === 'Delivery' ? '[DELIVERY] ' : '[LOJA] '}{a.tipoVenda}{a.vendedora ? ' • ' + a.vendedora : ''} (venda {fmt(num(a.valorVenda) || num(a.valorItem))} + frete {fmt(num(a.valorFrete))})</span><strong>{fmt(a.totalPago)}</strong></div>
+                            <div key={a.id} className="receipt-item"><span>{a.origem === 'Delivery' ? '[DELIVERY] ' : '[LOJA] '}{a.tipoVenda}{a.vendedora ? ' • ' + a.vendedora : ''} (frete a parte: {fmt(num(a.valorFrete))})</span><strong>{fmt(num(a.valorVenda) || num(a.valorItem))}</strong></div>
                         ))}
-                        <div className="receipt-item"><span>Só Vendas (PDV)</span><strong>{fmt((fech.acessorios || []).reduce((s, a) => s + (num(a.valorVenda) || num(a.valorItem)), 0))}</strong></div>
-                        <div className="receipt-item"><span>Só Fretes</span><strong>{fmt((fech.acessorios || []).reduce((s, a) => s + num(a.valorFrete), 0))}</strong></div>
-                        <div className="receipt-total"><span>TOTAL DA SEÇÃO (VENDA + FRETE)</span><span>{fmt((fech.acessorios || []).reduce((s, a) => s + num(a.totalPago), 0))}</span></div>
+                        <div className="receipt-total"><span>TOTAL VENDAS DA SEÇÃO (sem frete)</span><span>{fmt((fech.acessorios || []).reduce((s, a) => s + (num(a.valorVenda) || num(a.valorItem)), 0))}</span></div>
+                        <div className="receipt-item"><span>Fretes a parte (NAO somam na venda)</span><strong>{fmt((fech.acessorios || []).reduce((s, a) => s + num(a.valorFrete), 0))}</strong></div>
                     </>
                 )}
                 <hr className="receipt-divider" />
@@ -2651,14 +2650,14 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
     }, [storeFechamentos, range, storeFilter]);
 
     const totals = useMemo(() => {
-        const t = { credito: 0, debito: 0, pix: 0, dinheiro: 0, nf: 0, vendido: 0, trocas: 0, sangria: 0, usoCaixa: 0, saldo: 0, objetivo: 0, abertura: 0, acessorios: 0, delivery: 0 };
+        const t = { credito: 0, debito: 0, pix: 0, dinheiro: 0, nf: 0, vendido: 0, trocas: 0, sangria: 0, usoCaixa: 0, saldo: 0, objetivo: 0, abertura: 0, acessorios: 0, delivery: 0, fretesAcc: 0 };
         filtered.forEach(f => {
             const c = calcFechTotais(f);
             t.credito += c.totalCredito; t.debito += num(f.debito); t.pix += c.totalPix;
             t.dinheiro += num(f.dinheiro); t.nf += c.totalNF; t.vendido += c.totalVendido;
             t.trocas += num(f.valorTrocas); t.sangria += num(f.sangria); t.usoCaixa += num(f.usoCaixa);
             t.saldo += c.saldoDinheiro; t.objetivo += num(f.objetivoDia); t.abertura += num(f.abertura);
-            t.acessorios += c.totalAcessorios; t.delivery += c.totalDelivery;
+            t.acessorios += c.totalAcessorios; t.delivery += c.totalDelivery; t.fretesAcc += num(c.totalFretesAcc);
         });
         return t;
     }, [filtered]);
@@ -2736,7 +2735,7 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
             XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(deliveriesPeriodo.map(a => ({
                 'Data': a.date, 'Loja': a.storeName || fixedStoreName || '', 'Origem': a.origem || '',
                 'Vendedora Responsavel': a.vendedora || '', 'Tipo de Venda': a.tipoVenda || '',
-                'Venda PDV (R$)': num(a.valorVenda) || num(a.valorItem), 'Frete (R$)': num(a.valorFrete), 'Total Venda+Frete (R$)': num(a.totalPago)
+                'Venda PDV (R$)': num(a.valorVenda) || num(a.valorItem), 'Frete a parte (R$)': num(a.valorFrete)
             }))), 'Delivery-Acessorios');
         }
         XLSX.writeFile(wb, 'fechamentos-' + range[0] + '-a-' + range[1] + '.xlsx');
@@ -2754,23 +2753,23 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
             porLojaMap[k].qtd += 1;
             porLojaMap[k].itens += num(a.valorVenda) || num(a.valorItem);
             porLojaMap[k].fretes += num(a.valorFrete);
-            porLojaMap[k].total += num(a.totalPago);
+            porLojaMap[k].total += num(a.valorVenda) || num(a.valorItem);
         });
         const resumo = Object.entries(porLojaMap).sort((a, b) => b[1].total - a[1].total).map(([loja, d]) => ({
-            'Loja': loja, 'Qtd Deliveries': d.qtd, 'Total Vendas PDV (R$)': d.itens, 'Total Fretes (R$)': d.fretes, 'Total Delivery Venda+Frete (R$)': d.total,
+            'Loja': loja, 'Qtd Deliveries': d.qtd, 'Total Vendas Delivery (R$)': d.total, 'Fretes a parte (R$)': d.fretes,
             'Ticket Medio (R$)': d.qtd > 0 ? d.total / d.qtd : 0
         }));
+        const totVendasGeral = soDelivery.reduce((s, a) => s + (num(a.valorVenda) || num(a.valorItem)), 0);
         resumo.push({ 'Loja': 'TOTAL GERAL', 'Qtd Deliveries': soDelivery.length,
-            'Total Vendas PDV (R$)': soDelivery.reduce((s, a) => s + (num(a.valorVenda) || num(a.valorItem)), 0),
-            'Total Fretes (R$)': soDelivery.reduce((s, a) => s + num(a.valorFrete), 0),
-            'Total Delivery Venda+Frete (R$)': soDelivery.reduce((s, a) => s + num(a.totalPago), 0),
-            'Ticket Medio (R$)': soDelivery.length > 0 ? soDelivery.reduce((s, a) => s + num(a.totalPago), 0) / soDelivery.length : 0 });
+            'Total Vendas Delivery (R$)': totVendasGeral,
+            'Fretes a parte (R$)': soDelivery.reduce((s, a) => s + num(a.valorFrete), 0),
+            'Ticket Medio (R$)': soDelivery.length > 0 ? totVendasGeral / soDelivery.length : 0 });
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumo), 'Delivery por Loja');
         // Aba 2: detalhado com responsavel
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(soDelivery.map(a => ({
             'Data': a.date, 'Loja': a.storeName || fixedStoreName || '', 'Vendedora Responsavel': a.vendedora || '',
             'Tipo de Venda': a.tipoVenda || '', 'Venda PDV (R$)': num(a.valorVenda) || num(a.valorItem),
-            'Frete (R$)': num(a.valorFrete), 'Total Venda+Frete (R$)': num(a.totalPago)
+            'Frete a parte (R$)': num(a.valorFrete)
         }))), 'Delivery Detalhado');
         XLSX.writeFile(wb, 'delivery-' + range[0] + '-a-' + range[1] + '.xlsx');
     };
@@ -2839,7 +2838,7 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
             <div className="stats-grid">
                 <div className="stat-card"><span className="stat-icon">💰</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.vendido)}</span><span className="stat-label">Total Vendido {totals.objetivo > 0 ? '(' + pctPeriodo.toFixed(0) + '% do objetivo)' : ''}</span></div>
                 <div className="stat-card"><span className="stat-icon">🔄</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.trocas)}</span><span className="stat-label">Trocas</span></div>
-                <div className="stat-card"><span className="stat-icon">🛵</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.delivery)}</span><span className="stat-label">Delivery — venda + frete (seção toda: {fmt(totals.acessorios)})</span></div>
+                <div className="stat-card"><span className="stat-icon">🛵</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.delivery)}</span><span className="stat-label">Vendas Delivery — sem frete (fretes à parte: {fmt(totals.fretesAcc)})</span></div>
                 <div className="stat-card"><span className="stat-icon">📤</span><span className="stat-value" style={{ fontSize:'1.6rem', color:'var(--danger)' }}>{fmt(totals.sangria)}</span><span className="stat-label">Retirada de Sangria</span></div>
                 <div className="stat-card"><span className="stat-icon">🛍️</span><span className="stat-value" style={{ fontSize:'1.6rem', color:'var(--warning)' }}>{fmt(totals.usoCaixa)}</span><span className="stat-label">Uso de Caixa</span></div>
                 <div className="stat-card"><span className="stat-icon">🏦</span><span className="stat-value" style={{ fontSize:'1.6rem', color: totals.saldo >= 0 ? 'var(--success)' : 'var(--danger)' }}>{fmt(totals.saldo)}</span><span className="stat-label">Saldo em Dinheiro (abertura {fmt(totals.abertura)} incluída)</span></div>
@@ -2918,7 +2917,7 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
                     <h2 className="card-title">🛵 Delivery / Acessórios no Período — quem fez cada venda</h2>
                     <div className="table-container">
                         <table className="table">
-                            <thead><tr><th>Data</th><th>Loja</th><th>Origem</th><th>Vendedora</th><th>Tipo</th><th>Venda (PDV)</th><th>Frete</th><th>Total<br/><span style={{ fontWeight:'400', textTransform:'none', fontSize:'0.72rem' }}>(venda + frete)</span></th></tr></thead>
+                            <thead><tr><th>Data</th><th>Loja</th><th>Origem</th><th>Vendedora</th><th>Tipo</th><th>Venda (PDV)</th><th>Frete<br/><span style={{ fontWeight:'400', textTransform:'none', fontSize:'0.72rem' }}>(à parte — não soma)</span></th></tr></thead>
                             <tbody>
                                 {deliveriesPeriodo.map((a, idx) => (
                                     <tr key={idx}>
@@ -2927,9 +2926,8 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
                                         <td><span className={a.origem === 'Delivery' ? 'badge badge-pending' : 'badge badge-confirmed'} style={{ padding:'0.25rem 0.6rem', fontSize:'0.78rem' }}>{a.origem === 'Delivery' ? '🛵 Delivery' : '🏪 Loja'}</span></td>
                                         <td style={{ fontWeight:'700', color:'var(--accent)' }}>{a.vendedora || '⚠️ sem vendedora'}</td>
                                         <td>{a.tipoVenda || '-'}</td>
-                                        <td>{fmt(num(a.valorVenda) || num(a.valorItem))}</td>
-                                        <td>{fmt(num(a.valorFrete))}</td>
-                                        <td style={{ fontWeight:'700', color:'var(--success)' }}>{fmt(num(a.totalPago))}</td>
+                                        <td style={{ fontWeight:'700', color:'var(--success)' }}>{fmt(num(a.valorVenda) || num(a.valorItem))}</td>
+                                        <td style={{ color:'var(--text-secondary)' }}>{fmt(num(a.valorFrete))}</td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -3058,7 +3056,7 @@ function FechDashboard({ filtered, totals }) {
                     <div className="card">
                         <h2 className="card-title">🛵 Delivery por Loja</h2>
                         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:'0.5rem', marginBottom:'1.25rem' }}>
-                            <span style={{ color:'var(--text-secondary)', fontSize:'0.9rem' }}>Total de Delivery no período (venda + frete)</span>
+                            <span style={{ color:'var(--text-secondary)', fontSize:'0.9rem' }}>Vendas de Delivery no período (frete NÃO incluído)</span>
                             <span style={{ fontFamily:'Syne, sans-serif', fontWeight:'800', fontSize:'1.4rem', color:'var(--warning)' }}>{fmt(totalDeliv)} <span style={{ fontSize:'0.85rem', color:'var(--text-secondary)', fontWeight:'500' }}>({totals.vendido > 0 ? ((totalDeliv / totals.vendido) * 100).toFixed(1) : 0}% do vendido)</span></span>
                         </div>
                         {lista.map(l => (
@@ -3113,7 +3111,8 @@ function PrintAdminFechamentos({ filtered, totals, range, ranking, inters, store
                 <div className="receipt-item"><span>Nota Fiscal</span><strong>{fmt(totals.nf)}</strong></div>
                 <div className="receipt-total"><span>TOTAL VENDIDO</span><span>{fmt(totals.vendido)}</span></div>
                 <div className="receipt-item"><span>Trocas</span><strong>{fmt(totals.trocas)}</strong></div>
-                <div className="receipt-item"><span>Delivery / Acessorios</span><strong>{fmt(totals.delivery)} / {fmt(totals.acessorios)}</strong></div>
+                <div className="receipt-item"><span>Vendas Delivery (sem frete)</span><strong>{fmt(totals.delivery)}</strong></div>
+                <div className="receipt-item"><span>Fretes a parte (nao somam)</span><strong>{fmt(totals.fretesAcc)}</strong></div>
                 <div className="receipt-item"><span>Abertura (fundo de troco)</span><strong>{fmt(totals.abertura)}</strong></div>
                 <div className="receipt-item"><span>Retirada de Sangria</span><strong>{fmt(totals.sangria)}</strong></div>
                 <div className="receipt-item"><span>Uso de Caixa</span><strong>{fmt(totals.usoCaixa)}</strong></div>
@@ -3138,7 +3137,7 @@ function PrintAdminFechamentos({ filtered, totals, range, ranking, inters, store
                         <hr className="receipt-divider" />
                         <div className="receipt-section-title">DELIVERY / ACESSORIOS — RESPONSAVEL POR CADA UM</div>
                         {deliveriesPeriodo.map((a, idx) => (
-                            <div key={idx} className="receipt-item"><span>{a.date} • {a.storeName || fixedStoreName || ''} • {a.origem === 'Delivery' ? 'DELIVERY' : 'LOJA'} • Vend: {a.vendedora || 'SEM VENDEDORA'} • {a.tipoVenda}</span><strong>{fmt(num(a.totalPago))}</strong></div>
+                            <div key={idx} className="receipt-item"><span>{a.date} • {a.storeName || fixedStoreName || ''} • {a.origem === 'Delivery' ? 'DELIVERY' : 'LOJA'} • Vend: {a.vendedora || 'SEM VENDEDORA'} • {a.tipoVenda} (frete {fmt(num(a.valorFrete))})</span><strong>{fmt(num(a.valorVenda) || num(a.valorItem))}</strong></div>
                         ))}
                     </>
                 )}
