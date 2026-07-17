@@ -525,6 +525,42 @@
         return function() { unsubscribes.forEach(function(u) { u && u(); }); };
     }
 
+    // ===== SOLICITACOES DE TRANSFERENCIA ENTRE LOJAS =====
+    async function salvarTransferencia(storeId, transf) {
+        const ref = db.collection("stores").doc(storeId).collection("transferencias");
+        const docRef = await ref.add({ ...transf, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+        return docRef.id;
+    }
+
+    async function atualizarTransferencia(storeId, transfId, dados) {
+        await db.collection("stores").doc(storeId).collection("transferencias").doc(transfId)
+            .update({ ...dados, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    }
+
+    async function deletarTransferencia(storeId, transfId) {
+        await db.collection("stores").doc(storeId).collection("transferencias").doc(transfId).delete();
+    }
+
+    function ouvirTransferencias(storeId, callback) {
+        const ref = db.collection("stores").doc(storeId).collection("transferencias").orderBy("createdAt", "desc");
+        return ref.onSnapshot(function(snap) {
+            callback(snap.docs.map(function(d) { return { ...d.data(), id: d.id }; }));
+        }, function(err) { console.error("Firebase transferencias erro:", err); callback([]); });
+    }
+
+    function ouvirTodasTransferencias(lojas, callback) {
+        const unsubscribes = lojas.map(function(loja) {
+            const ref = db.collection("stores").doc(loja.id).collection("transferencias").orderBy("createdAt", "desc");
+            return ref.onSnapshot(function(snap) {
+                const transfs = snap.docs.map(function(d) {
+                    return { ...d.data(), id: d.id, storeId: loja.id, storeName: loja.name };
+                });
+                callback(loja.id, transfs);
+            }, function(err) { console.error("Firebase transferencias erro " + loja.id + ":", err); });
+        });
+        return function() { unsubscribes.forEach(function(u) { u && u(); }); };
+    }
+
     // ===== MOVIMENTACOES DE INSUMOS (entrada/saida como na planilha) =====
     async function salvarMovInsumo(storeId, mov) {
         const ref = db.collection("stores").doc(storeId).collection("insumos_mov");
@@ -606,6 +642,7 @@
         salvarTester, atualizarTester, deletarTester, ouvirTesters, ouvirTodosTesters,
         salvarInsumos, ouvirInsumos, ouvirTodosInsumos,
         salvarMovInsumo, ouvirMovInsumos, ouvirTodasMovInsumos,
+        salvarTransferencia, atualizarTransferencia, deletarTransferencia, ouvirTransferencias, ouvirTodasTransferencias,
         garantirCatalogo
     };
 
@@ -780,6 +817,7 @@ function App() {
     const [testers, setTesters] = useState([]);
     const [insumosLoja, setInsumosLoja] = useState(INITIAL_INSUMOS);
     const [movInsumos, setMovInsumos] = useState([]);
+    const [transferencias, setTransferencias] = useState([]);
     const [syncStatus, setSyncStatus] = useState('loading');
     const [loading, setLoading] = useState(false);
     const unsubscribeRef = useRef([]);
@@ -811,7 +849,8 @@ function App() {
             const unsubTesters = window.TrocaDB.ouvirTesters(currentStore.id, (t) => setTesters(t));
             const unsubInsumos = window.TrocaDB.ouvirInsumos(currentStore.id, INITIAL_INSUMOS, (i) => setInsumosLoja(i));
             const unsubMovs = window.TrocaDB.ouvirMovInsumos(currentStore.id, (m) => setMovInsumos(m));
-            unsubscribeRef.current = [unsubExchanges, unsubInventory, unsubMetas, unsubVendas, unsubVendedoras, unsubFechLoja, unsubTesters, unsubInsumos, unsubMovs];
+            const unsubTransf = window.TrocaDB.ouvirTransferencias(currentStore.id, (t) => setTransferencias(t));
+            unsubscribeRef.current = [unsubExchanges, unsubInventory, unsubMetas, unsubVendas, unsubVendedoras, unsubFechLoja, unsubTesters, unsubInsumos, unsubMovs, unsubTransf];
         } catch(e) {
             console.error(e);
             setSyncStatus('offline');
@@ -880,6 +919,7 @@ function App() {
                             { id: 'inventory',    icon: '📦', label: 'Estoque' },
                             { id: 'insumos',      icon: '🧺', label: 'Insumos' },
                             { id: 'testers',      icon: '🧪', label: 'Testers' },
+                            { id: 'transferencias', icon: '🔁', label: 'Transferencias' },
                             { id: 'reports',      icon: '📊', label: 'Relatorios' },
                         ].map(item => (
                             <li key={item.id} className="nav-item">
@@ -908,6 +948,8 @@ function App() {
                     <InsumosPage storeId={currentStore.id} insumos={insumosLoja} movimentos={movInsumos} onSave={handleSaveInsumos} showToast={showToast} />}
                 {currentPage === 'testers' &&
                     <TestersPage storeId={currentStore.id} storeName={currentStore.name} inventory={inventory} testers={testers} vendedoras={vendedoras} showToast={showToast} />}
+                {currentPage === 'transferencias' &&
+                    <TransferenciasPage storeId={currentStore.id} storeName={currentStore.name} inventory={inventory} transferencias={transferencias} vendedoras={vendedoras} showToast={showToast} />}
                 {currentPage === 'reports' &&
                     <ReportsPage exchanges={exchanges} storeName={currentStore.name} />}
             </main>
@@ -923,6 +965,7 @@ function AdminView({ onLogout, showToast }) {
     const [storeTesters, setStoreTesters] = useState({});
     const [storeInsumos, setStoreInsumos] = useState({});
     const [storeMovs, setStoreMovs] = useState({});
+    const [storeTransfs, setStoreTransfs] = useState({});
     const [metas, setMetas] = useState({});
     const [selectedStore, setSelectedStore] = useState('all');
     const [selectedExchange, setSelectedExchange] = useState(null);
@@ -954,6 +997,9 @@ function AdminView({ onLogout, showToast }) {
             }));
             unsubs.push(window.TrocaDB.ouvirTodosFretes(STORES, (storeId, fretes) => {
                 setStoreFretes(prev => ({ ...prev, [storeId]: fretes }));
+            }));
+            unsubs.push(window.TrocaDB.ouvirTodasTransferencias(STORES, (storeId, transfs) => {
+                setStoreTransfs(prev => ({ ...prev, [storeId]: transfs }));
             }));
             unsubs.push(window.TrocaDB.ouvirTodosTesters(STORES, (storeId, testers) => {
                 setStoreTesters(prev => ({ ...prev, [storeId]: testers }));
@@ -1040,6 +1086,11 @@ function AdminView({ onLogout, showToast }) {
                             </div>
                         </li>
                         <li className="nav-item">
+                            <div className={`nav-link ${adminPage === 'transferencias' ? 'active' : ''}`} onClick={() => setAdminPage('transferencias')}>
+                                <span className="nav-icon">🔁</span>Transferências
+                            </div>
+                        </li>
+                        <li className="nav-item">
                             <div className={`nav-link ${adminPage === 'compras' ? 'active' : ''}`} onClick={() => setAdminPage('compras')}>
                                 <span className="nav-icon">🛒</span>Compras
                             </div>
@@ -1076,6 +1127,9 @@ function AdminView({ onLogout, showToast }) {
                 )}
                 {adminPage === 'testers' && (
                     <AdminTestersPage storeTesters={storeTesters} aprovadorNome="Administrador" showToast={showToast} />
+                )}
+                {adminPage === 'transferencias' && (
+                    <AdminTransferenciasPage storeTransfs={storeTransfs} aprovadorNome="Administrador" showToast={showToast} />
                 )}
                 {adminPage === 'compras' && (
                     <AdminComprasPage storeInsumos={storeInsumos} storeMovs={storeMovs} showToast={showToast} />
@@ -1190,6 +1244,7 @@ function FinanceiroView({ onLogout, showToast }) {
     const [storeTesters, setStoreTesters] = useState({});
     const [storeInsumos, setStoreInsumos] = useState({});
     const [storeMovs, setStoreMovs] = useState({});
+    const [storeTransfs, setStoreTransfs] = useState({});
     const [finPage, setFinPage] = useState('fechamentos');
     const [loading, setLoading] = useState(true);
     const unsubRef = useRef(null);
@@ -1213,12 +1268,16 @@ function FinanceiroView({ onLogout, showToast }) {
             unsubs.push(window.TrocaDB.ouvirTodasMovInsumos(STORES, (storeId, movs) => {
                 setStoreMovs(prev => ({ ...prev, [storeId]: movs }));
             }));
+            unsubs.push(window.TrocaDB.ouvirTodasTransferencias(STORES, (storeId, transfs) => {
+                setStoreTransfs(prev => ({ ...prev, [storeId]: transfs }));
+            }));
         } catch(e) { console.error(e); setLoading(false); }
         unsubRef.current = () => unsubs.forEach(u => u && u());
         return () => unsubRef.current && unsubRef.current();
     }, []);
 
     const pendentesTesters = Object.values(storeTesters).flat().filter(t => t.status === 'pendente').length;
+    const pendentesTransfs = Object.values(storeTransfs).flat().filter(t => t.status === 'pendente').length;
 
     return (
         <div className="app-container">
@@ -1247,6 +1306,11 @@ function FinanceiroView({ onLogout, showToast }) {
                             </div>
                         </li>
                         <li className="nav-item">
+                            <div className={`nav-link ${finPage === 'transferencias' ? 'active' : ''}`} onClick={() => setFinPage('transferencias')}>
+                                <span className="nav-icon">🔁</span>Transferências{pendentesTransfs > 0 && <span className="badge badge-pending" style={{ marginLeft:'auto', padding:'0.2rem 0.6rem', fontSize:'0.75rem' }}>{pendentesTransfs}</span>}
+                            </div>
+                        </li>
+                        <li className="nav-item">
                             <div className={`nav-link ${finPage === 'compras' ? 'active' : ''}`} onClick={() => setFinPage('compras')}>
                                 <span className="nav-icon">🛒</span>Compras
                             </div>
@@ -1258,6 +1322,7 @@ function FinanceiroView({ onLogout, showToast }) {
             <main className="main-content">
                 {finPage === 'fechamentos' && <AdminFechamentosPage storeFechamentos={storeFechamentos} storeExchanges={storeExchanges} metas={{}} showToast={showToast} />}
                 {finPage === 'testers' && <AdminTestersPage storeTesters={storeTesters} aprovadorNome="Bruno (Financeiro)" showToast={showToast} />}
+                {finPage === 'transferencias' && <AdminTransferenciasPage storeTransfs={storeTransfs} aprovadorNome="Bruno (Financeiro)" showToast={showToast} />}
                 {finPage === 'compras' && <AdminComprasPage storeInsumos={storeInsumos} storeMovs={storeMovs} showToast={showToast} />}
             </main>
         </div>
@@ -2144,7 +2209,9 @@ function calcFechTotais(f) {
     const totalAcessorios = (f.acessorios || []).reduce((s, a) => s + vendaAcc(a), 0);
     const totalDelivery = (f.acessorios || []).filter(a => a.origem === 'Delivery').reduce((s, a) => s + vendaAcc(a), 0);
     const totalFretesAcc = (f.acessorios || []).reduce((s, a) => s + num(a.valorFrete), 0);
-    return { totalCredito, totalPix, totalNF, totalVendido, totalSaidas, abertura, saldoDinheiro, totalAcessorios, totalDelivery, totalFretesAcc };
+    const fretesCliente = (f.acessorios || []).filter(a => (a.fretePagoCliente || 'Sim') === 'Sim').reduce((s, a) => s + num(a.valorFrete), 0);
+    const fretesEmpresa = totalFretesAcc - fretesCliente;
+    return { totalCredito, totalPix, totalNF, totalVendido, totalSaidas, abertura, saldoDinheiro, totalAcessorios, totalDelivery, totalFretesAcc, fretesCliente, fretesEmpresa };
 }
 
 function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fechamentos, showToast }) {
@@ -2155,7 +2222,7 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fech
     const [showPrint, setShowPrint] = useState(false);
     const [fechView, setFechView] = useState('dia');
     const [newVend, setNewVend] = useState({ nome:'', valor:'', atendimentos:'' });
-    const [newAcc, setNewAcc] = useState({ valorVenda:'', tipoVenda:'PIX', origem:'Delivery', valorFrete:'', vendedora:'' });
+    const [newAcc, setNewAcc] = useState({ valorVenda:'', tipoVenda:'PIX', origem:'Delivery', valorFrete:'', fretePagoCliente:'Sim', vendedora:'' });
     const [newInt, setNewInt] = useState({ tipo:'Cancelamento', ticket:'', descricao:'' });
 
     useEffect(() => {
@@ -2201,9 +2268,10 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fech
         setF('acessorios', [...(fech.acessorios || []), {
             id: Date.now(), tipoVenda: newAcc.tipoVenda, origem: newAcc.origem, vendedora: newAcc.vendedora.toUpperCase(),
             valorVenda: num(newAcc.valorVenda), valorFrete: num(newAcc.valorFrete),
+            fretePagoCliente: newAcc.fretePagoCliente,
             totalPago: num(newAcc.valorVenda)
         }]);
-        setNewAcc({ valorVenda:'', tipoVenda:'PIX', origem: newAcc.origem, valorFrete:'', vendedora:'' });
+        setNewAcc({ valorVenda:'', tipoVenda:'PIX', origem: newAcc.origem, valorFrete:'', fretePagoCliente:'Sim', vendedora:'' });
     };
     const addInt = () => {
         if (!newInt.descricao && !newInt.ticket) return;
@@ -2415,6 +2483,11 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fech
                         </select>
                     </div>
                     <div className="form-group"><label className="form-label">Valor do Frete — só a entrega</label><input type="text" inputMode="decimal" className="form-input" value={newAcc.valorFrete} onChange={e => setNewAcc({...newAcc, valorFrete: e.target.value})} placeholder="0,00" /></div>
+                    <div className="form-group"><label className="form-label">Frete pago pelo cliente?</label>
+                        <select className="form-select" value={newAcc.fretePagoCliente} onChange={e => setNewAcc({...newAcc, fretePagoCliente: e.target.value})}>
+                            <option>Sim</option><option value="Não">Não — empresa paga</option>
+                        </select>
+                    </div>
                     <div className="form-group"><label className="form-label">Vendedora</label><input className="form-input" value={newAcc.vendedora} onChange={e => setNewAcc({...newAcc, vendedora: e.target.value})} placeholder="Nome" list="vendedoras-list" /></div>
                     <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}><button type="button" className="btn btn-primary" onClick={addAcc} style={{ width:'100%' }}>➕</button></div>
                 </div>
@@ -2428,7 +2501,7 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fech
                                         <td><span className={a.origem === 'Delivery' ? 'badge badge-pending' : 'badge badge-confirmed'} style={{ padding:'0.25rem 0.6rem', fontSize:'0.78rem' }}>{a.origem === 'Delivery' ? '🛵 Delivery' : '🏪 Loja'}</span></td>
                                         <td style={{ fontWeight:'700', color:'var(--accent)' }}>{fmt(num(a.valorVenda) || num(a.valorItem))}</td>
                                         <td>{a.tipoVenda}</td>
-                                        <td style={{ color:'var(--text-secondary)' }}>{fmt(a.valorFrete)}</td>
+                                        <td style={{ color:'var(--text-secondary)' }}>{fmt(a.valorFrete)}{num(a.valorFrete) > 0 && <div style={{ fontSize:'0.72rem' }}>{(a.fretePagoCliente || 'Sim') === 'Sim' ? '👤 cliente paga' : '🏢 empresa paga'}</div>}</td>
                                         <td>{a.vendedora || '-'}</td>
                                         <td><button className="btn btn-danger btn-small" onClick={() => removeFrom('acessorios', a.id)}>🗑️</button></td>
                                     </tr>
@@ -2444,7 +2517,8 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fech
                         ))}
                         <div className="cal-summary-item" style={{ border:'1px solid var(--warning)' }}><span className="cal-summary-value" style={{ fontSize:'1.15rem', color:'var(--warning)' }}>{fmt(totalDelivery)}</span><div className="cal-summary-label">🛵 Vendas Delivery (sem frete)</div></div>
                         <div className="cal-summary-item" style={{ border:'1px solid var(--primary)' }}><span className="cal-summary-value" style={{ fontSize:'1.15rem', color:'var(--primary)' }}>{fmt(totalAcessorios)}</span><div className="cal-summary-label">💰 Total Vendas da Seção (sem frete)</div></div>
-                        <div className="cal-summary-item"><span className="cal-summary-value" style={{ fontSize:'1.15rem', color:'var(--text-secondary)' }}>{fmt(accFretes)}</span><div className="cal-summary-label">🚚 Fretes à parte (NÃO somam na venda)</div></div>
+                        <div className="cal-summary-item"><span className="cal-summary-value" style={{ fontSize:'1.15rem', color:'var(--success)' }}>{fmt((fech.acessorios || []).filter(a => (a.fretePagoCliente || 'Sim') === 'Sim').reduce((s, a) => s + num(a.valorFrete), 0))}</span><div className="cal-summary-label">👤 Fretes pagos pelo CLIENTE (à parte)</div></div>
+                        <div className="cal-summary-item"><span className="cal-summary-value" style={{ fontSize:'1.15rem', color:'var(--danger)' }}>{fmt((fech.acessorios || []).filter(a => (a.fretePagoCliente || 'Sim') !== 'Sim').reduce((s, a) => s + num(a.valorFrete), 0))}</span><div className="cal-summary-label">🏢 Fretes pagos pela EMPRESA (à parte)</div></div>
                     </div>
                 )}
             </div>
@@ -2577,10 +2651,11 @@ function PrintFechamento({ storeName, date, fech, trocasDoDia, valorTrocas, valo
                         <hr className="receipt-divider" />
                         <div className="receipt-section-title">DELIVERY, FRETE, BANDEJAS, CAIXAS E ACESSÓRIOS</div>
                         {(fech.acessorios || []).map(a => (
-                            <div key={a.id} className="receipt-item"><span>{a.origem === 'Delivery' ? '[DELIVERY] ' : '[LOJA] '}{a.tipoVenda}{a.vendedora ? ' • ' + a.vendedora : ''} (frete a parte: {fmt(num(a.valorFrete))})</span><strong>{fmt(num(a.valorVenda) || num(a.valorItem))}</strong></div>
+                            <div key={a.id} className="receipt-item"><span>{a.origem === 'Delivery' ? '[DELIVERY] ' : '[LOJA] '}{a.tipoVenda}{a.vendedora ? ' • ' + a.vendedora : ''} (frete {fmt(num(a.valorFrete))} — {(a.fretePagoCliente || 'Sim') === 'Sim' ? 'cliente paga' : 'EMPRESA paga'})</span><strong>{fmt(num(a.valorVenda) || num(a.valorItem))}</strong></div>
                         ))}
                         <div className="receipt-total"><span>TOTAL VENDAS DA SEÇÃO (sem frete)</span><span>{fmt((fech.acessorios || []).reduce((s, a) => s + (num(a.valorVenda) || num(a.valorItem)), 0))}</span></div>
-                        <div className="receipt-item"><span>Fretes a parte (NAO somam na venda)</span><strong>{fmt((fech.acessorios || []).reduce((s, a) => s + num(a.valorFrete), 0))}</strong></div>
+                        <div className="receipt-item"><span>Fretes pagos pelo CLIENTE (a parte)</span><strong>{fmt((fech.acessorios || []).filter(a => (a.fretePagoCliente || 'Sim') === 'Sim').reduce((s, a) => s + num(a.valorFrete), 0))}</strong></div>
+                        <div className="receipt-item"><span>Fretes pagos pela EMPRESA (a parte)</span><strong>{fmt((fech.acessorios || []).filter(a => (a.fretePagoCliente || 'Sim') !== 'Sim').reduce((s, a) => s + num(a.valorFrete), 0))}</strong></div>
                     </>
                 )}
                 <hr className="receipt-divider" />
@@ -2650,7 +2725,7 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
     }, [storeFechamentos, range, storeFilter]);
 
     const totals = useMemo(() => {
-        const t = { credito: 0, debito: 0, pix: 0, dinheiro: 0, nf: 0, vendido: 0, trocas: 0, sangria: 0, usoCaixa: 0, saldo: 0, objetivo: 0, abertura: 0, acessorios: 0, delivery: 0, fretesAcc: 0 };
+        const t = { credito: 0, debito: 0, pix: 0, dinheiro: 0, nf: 0, vendido: 0, trocas: 0, sangria: 0, usoCaixa: 0, saldo: 0, objetivo: 0, abertura: 0, acessorios: 0, delivery: 0, fretesAcc: 0, fretesCli: 0, fretesEmp: 0 };
         filtered.forEach(f => {
             const c = calcFechTotais(f);
             t.credito += c.totalCredito; t.debito += num(f.debito); t.pix += c.totalPix;
@@ -2658,6 +2733,7 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
             t.trocas += num(f.valorTrocas); t.sangria += num(f.sangria); t.usoCaixa += num(f.usoCaixa);
             t.saldo += c.saldoDinheiro; t.objetivo += num(f.objetivoDia); t.abertura += num(f.abertura);
             t.acessorios += c.totalAcessorios; t.delivery += c.totalDelivery; t.fretesAcc += num(c.totalFretesAcc);
+            t.fretesCli += num(c.fretesCliente); t.fretesEmp += num(c.fretesEmpresa);
         });
         return t;
     }, [filtered]);
@@ -2735,7 +2811,8 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
             XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(deliveriesPeriodo.map(a => ({
                 'Data': a.date, 'Loja': a.storeName || fixedStoreName || '', 'Origem': a.origem || '',
                 'Vendedora Responsavel': a.vendedora || '', 'Tipo de Venda': a.tipoVenda || '',
-                'Venda PDV (R$)': num(a.valorVenda) || num(a.valorItem), 'Frete a parte (R$)': num(a.valorFrete)
+                'Venda PDV (R$)': num(a.valorVenda) || num(a.valorItem), 'Frete a parte (R$)': num(a.valorFrete),
+                'Frete pago por': num(a.valorFrete) > 0 ? ((a.fretePagoCliente || 'Sim') === 'Sim' ? 'CLIENTE' : 'EMPRESA') : ''
             }))), 'Delivery-Acessorios');
         }
         XLSX.writeFile(wb, 'fechamentos-' + range[0] + '-a-' + range[1] + '.xlsx');
@@ -2769,7 +2846,8 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(soDelivery.map(a => ({
             'Data': a.date, 'Loja': a.storeName || fixedStoreName || '', 'Vendedora Responsavel': a.vendedora || '',
             'Tipo de Venda': a.tipoVenda || '', 'Venda PDV (R$)': num(a.valorVenda) || num(a.valorItem),
-            'Frete a parte (R$)': num(a.valorFrete)
+            'Frete a parte (R$)': num(a.valorFrete),
+            'Frete pago por': num(a.valorFrete) > 0 ? ((a.fretePagoCliente || 'Sim') === 'Sim' ? 'CLIENTE' : 'EMPRESA') : ''
         }))), 'Delivery Detalhado');
         XLSX.writeFile(wb, 'delivery-' + range[0] + '-a-' + range[1] + '.xlsx');
     };
@@ -2838,7 +2916,7 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
             <div className="stats-grid">
                 <div className="stat-card"><span className="stat-icon">💰</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.vendido)}</span><span className="stat-label">Total Vendido {totals.objetivo > 0 ? '(' + pctPeriodo.toFixed(0) + '% do objetivo)' : ''}</span></div>
                 <div className="stat-card"><span className="stat-icon">🔄</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.trocas)}</span><span className="stat-label">Trocas</span></div>
-                <div className="stat-card"><span className="stat-icon">🛵</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.delivery)}</span><span className="stat-label">Vendas Delivery — sem frete (fretes à parte: {fmt(totals.fretesAcc)})</span></div>
+                <div className="stat-card"><span className="stat-icon">🛵</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.delivery)}</span><span className="stat-label">Vendas Delivery — sem frete (fretes: 👤 cliente {fmt(totals.fretesCli)} • 🏢 empresa {fmt(totals.fretesEmp)})</span></div>
                 <div className="stat-card"><span className="stat-icon">📤</span><span className="stat-value" style={{ fontSize:'1.6rem', color:'var(--danger)' }}>{fmt(totals.sangria)}</span><span className="stat-label">Retirada de Sangria</span></div>
                 <div className="stat-card"><span className="stat-icon">🛍️</span><span className="stat-value" style={{ fontSize:'1.6rem', color:'var(--warning)' }}>{fmt(totals.usoCaixa)}</span><span className="stat-label">Uso de Caixa</span></div>
                 <div className="stat-card"><span className="stat-icon">🏦</span><span className="stat-value" style={{ fontSize:'1.6rem', color: totals.saldo >= 0 ? 'var(--success)' : 'var(--danger)' }}>{fmt(totals.saldo)}</span><span className="stat-label">Saldo em Dinheiro (abertura {fmt(totals.abertura)} incluída)</span></div>
@@ -2927,7 +3005,7 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
                                         <td style={{ fontWeight:'700', color:'var(--accent)' }}>{a.vendedora || '⚠️ sem vendedora'}</td>
                                         <td>{a.tipoVenda || '-'}</td>
                                         <td style={{ fontWeight:'700', color:'var(--success)' }}>{fmt(num(a.valorVenda) || num(a.valorItem))}</td>
-                                        <td style={{ color:'var(--text-secondary)' }}>{fmt(num(a.valorFrete))}</td>
+                                        <td style={{ color:'var(--text-secondary)' }}>{fmt(num(a.valorFrete))}{num(a.valorFrete) > 0 && <div style={{ fontSize:'0.72rem' }}>{(a.fretePagoCliente || 'Sim') === 'Sim' ? '👤 cliente' : '🏢 empresa'}</div>}</td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -3043,27 +3121,32 @@ function FechDashboard({ filtered, totals }) {
             {(() => {
                 const freteLoja = {};
                 filtered.forEach(f => {
-                    const fr = num(calcFechTotais(f).totalFretesAcc);
-                    if (fr <= 0) return;
+                    const cf = calcFechTotais(f);
+                    if (num(cf.totalFretesAcc) <= 0) return;
                     const k = f.storeName || '-';
-                    freteLoja[k] = (freteLoja[k] || 0) + fr;
+                    if (!freteLoja[k]) freteLoja[k] = { valor: 0, cli: 0, emp: 0 };
+                    freteLoja[k].valor += num(cf.totalFretesAcc);
+                    freteLoja[k].cli += num(cf.fretesCliente);
+                    freteLoja[k].emp += num(cf.fretesEmpresa);
                 });
-                const lista = Object.entries(freteLoja).map(([nome, valor]) => ({ nome, valor })).sort((a, b) => b.valor - a.valor);
+                const lista = Object.entries(freteLoja).map(([nome, d]) => ({ nome, ...d })).sort((a, b) => b.valor - a.valor);
                 const totalFretes = lista.reduce((s, l) => s + l.valor, 0);
                 if (totalFretes <= 0) return null;
+                const totCli = lista.reduce((s, l) => s + l.cli, 0);
+                const totEmp = lista.reduce((s, l) => s + l.emp, 0);
                 const maxD = Math.max(...lista.map(l => l.valor), 1);
                 return (
                     <div className="card">
                         <h2 className="card-title">🚚 Fretes Cobrados por Loja</h2>
                         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:'0.5rem', marginBottom:'1.25rem' }}>
-                            <span style={{ color:'var(--text-secondary)', fontSize:'0.9rem' }}>SOMENTE fretes cobrados no período — vendas NÃO incluídas</span>
+                            <span style={{ color:'var(--text-secondary)', fontSize:'0.9rem' }}>SOMENTE fretes — vendas NÃO incluídas • 👤 cliente pagou <strong style={{ color:'var(--success)' }}>{fmt(totCli)}</strong> • 🏢 empresa pagou <strong style={{ color:'var(--danger)' }}>{fmt(totEmp)}</strong></span>
                             <span style={{ fontFamily:'Syne, sans-serif', fontWeight:'800', fontSize:'1.4rem', color:'var(--warning)' }}>{fmt(totalFretes)}</span>
                         </div>
                         {lista.map(l => (
                             <div key={l.nome} style={{ marginBottom:'1rem' }}>
                                 <div style={{ display:'flex', justifyContent:'space-between', marginBottom:'0.35rem', fontSize:'0.95rem' }}>
                                     <span style={{ fontWeight:'600' }}>{l.nome}</span>
-                                    <span style={{ fontWeight:'700' }}>{fmt(l.valor)} <span style={{ color:'var(--text-secondary)', fontWeight:'500' }}>({((l.valor / totalFretes) * 100).toFixed(1)}% dos fretes)</span></span>
+                                    <span style={{ fontWeight:'700' }}>{fmt(l.valor)} <span style={{ color:'var(--text-secondary)', fontWeight:'500' }}>(👤 {fmt(l.cli)} • 🏢 {fmt(l.emp)})</span></span>
                                 </div>
                                 <div style={{ background:'var(--bg-dark)', borderRadius:'8px', height:'22px', overflow:'hidden' }}>
                                     <div style={{ width: ((l.valor / maxD) * 100) + '%', height:'100%', background:'linear-gradient(90deg, var(--warning), var(--accent))', borderRadius:'8px', transition:'width 0.5s ease' }}></div>
@@ -3112,7 +3195,8 @@ function PrintAdminFechamentos({ filtered, totals, range, ranking, inters, store
                 <div className="receipt-total"><span>TOTAL VENDIDO</span><span>{fmt(totals.vendido)}</span></div>
                 <div className="receipt-item"><span>Trocas</span><strong>{fmt(totals.trocas)}</strong></div>
                 <div className="receipt-item"><span>Vendas Delivery (sem frete)</span><strong>{fmt(totals.delivery)}</strong></div>
-                <div className="receipt-item"><span>Fretes a parte (nao somam)</span><strong>{fmt(totals.fretesAcc)}</strong></div>
+                <div className="receipt-item"><span>Fretes pagos pelo CLIENTE</span><strong>{fmt(totals.fretesCli)}</strong></div>
+                <div className="receipt-item"><span>Fretes pagos pela EMPRESA</span><strong>{fmt(totals.fretesEmp)}</strong></div>
                 <div className="receipt-item"><span>Abertura (fundo de troco)</span><strong>{fmt(totals.abertura)}</strong></div>
                 <div className="receipt-item"><span>Retirada de Sangria</span><strong>{fmt(totals.sangria)}</strong></div>
                 <div className="receipt-item"><span>Uso de Caixa</span><strong>{fmt(totals.usoCaixa)}</strong></div>
@@ -3156,6 +3240,290 @@ function PrintAdminFechamentos({ filtered, totals, range, ranking, inters, store
                     </>
                 )}
                 <div className="receipt-footer">Gerado em {new Date().toLocaleString('pt-BR')} - TrocaFacil</div>
+            </div>
+        </div>
+    );
+}
+
+// ===================== SOLICITACAO DE TRANSFERENCIA =====================
+function TransferenciasPage({ storeId, storeName, inventory, transferencias, vendedoras, showToast }) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const [form, setForm] = useState({ date: todayStr, barcode: '', product: '', qtd: '1', vendedora: '', motivo: '' });
+    const [saving, setSaving] = useState(false);
+    const [statusFilter, setStatusFilter] = useState('all');
+
+    const setF = (k, v) => setForm(p => ({ ...p, [k]: v }));
+
+    const handleBarcode = (value) => {
+        const found = inventory.find(p => p.barcode === value.trim());
+        if (found) setForm(p => ({ ...p, barcode: value, product: found.product }));
+        else setF('barcode', value);
+    };
+    const handleProductName = (value) => {
+        const found = inventory.find(p => p.product === value);
+        setForm(p => ({ ...p, product: value, barcode: found ? found.barcode : p.barcode }));
+    };
+
+    const handleSolicitar = async () => {
+        if (!form.product) { showToast('Informe o produto', 'error'); return; }
+        const qtd = parseInt(form.qtd);
+        if (!qtd || qtd <= 0) { showToast('Informe a quantidade', 'error'); return; }
+        setSaving(true);
+        try {
+            const found = inventory.find(p => p.product === form.product);
+            await window.TrocaDB.salvarTransferencia(storeId, {
+                date: form.date, product: form.product, barcode: form.barcode || (found ? found.barcode : ''),
+                group: found ? found.group : '', qtd, vendedora: form.vendedora, motivo: form.motivo,
+                status: 'pendente', storeName, solicitadoEm: new Date().toLocaleString('pt-BR')
+            });
+            setForm({ date: form.date, barcode: '', product: '', qtd: '1', vendedora: form.vendedora, motivo: '' });
+            showToast('Solicitação de transferência enviada! 🔁');
+        } catch(e) { console.error(e); showToast('Erro ao enviar solicitação', 'error'); }
+        finally { setSaving(false); }
+    };
+
+    const handleCancelar = async (t) => {
+        if (!confirm('Cancelar esta solicitação pendente?')) return;
+        try { await window.TrocaDB.deletarTransferencia(storeId, t.id); showToast('Solicitação cancelada'); }
+        catch { showToast('Erro ao cancelar', 'error'); }
+    };
+
+    const filtered = (transferencias || []).filter(t => statusFilter === 'all' || t.status === statusFilter);
+
+    const handleExport = () => {
+        if (!filtered.length) { alert('Nao ha solicitacoes'); return; }
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filtered.map(t => ({
+            'Data': t.date, 'Produto': t.product, 'Codigo Barras': t.barcode || '', 'Qtd': num(t.qtd),
+            'Vendedora': t.vendedora || '', 'Motivo': t.motivo || '',
+            'Status': t.status === 'pendente' ? 'Pendente' : t.status === 'aprovada' ? 'Aprovada' : 'Negada',
+            'Sai da Loja': t.origemNome || '', 'Decidido por': t.aprovadoPor || '', 'Decidido em': t.decididoEm || '',
+            'Solicitado em': t.solicitadoEm || ''
+        }))), 'Transferencias');
+        XLSX.writeFile(wb, 'transferencias-' + storeName.replace(/\s/g, '-') + '-' + todayStr + '.xlsx');
+    };
+
+    const statusBadge = (t) => t.status === 'pendente'
+        ? <span className="badge badge-pending">🟡 Pendente</span>
+        : t.status === 'aprovada'
+            ? <span className="badge badge-confirmed">🟢 Aprovada — sai de {t.origemNome || '?'}</span>
+            : <span className="badge badge-danger">🔴 Negada</span>;
+
+    return (
+        <div>
+            <div className="header">
+                <h1 className="page-title">🔁 Solicitação de Transferência</h1>
+                <p className="page-subtitle">Peça o produto — o Bruno aprova e define de qual loja sai</p>
+            </div>
+            <div className="card">
+                <h2 className="card-title">➕ Solicitar Produto</h2>
+                <div className="form-row">
+                    <div className="form-group"><label className="form-label">Data *</label><input type="date" className="form-input" value={form.date} onChange={e => setF('date', e.target.value)} /></div>
+                    <div className="form-group"><label className="form-label">Código de Barras</label><input className="form-input" inputMode="numeric" value={form.barcode} onChange={e => handleBarcode(e.target.value)} placeholder="Bipe ou digite" /></div>
+                    <div className="form-group"><label className="form-label">Produto *</label><input className="form-input" value={form.product} onChange={e => handleProductName(e.target.value)} placeholder="Nome do produto" list="produtos-transf-list" /></div>
+                    <div className="form-group"><label className="form-label">Qtd *</label><input type="number" min="1" className="form-input" value={form.qtd} onChange={e => setF('qtd', e.target.value)} /></div>
+                </div>
+                <datalist id="produtos-transf-list">{inventory.map(p => <option key={p.id} value={p.product} />)}</datalist>
+                <div className="form-row">
+                    <div className="form-group"><label className="form-label">Vendedora</label>
+                        <select className="form-select" value={form.vendedora} onChange={e => setF('vendedora', e.target.value)}>
+                            <option value="">Selecione...</option>
+                            {(vendedoras || []).filter(v => !v.arquivada).map(v => <option key={v.id} value={v.nome}>{v.nome}</option>)}
+                        </select>
+                    </div>
+                    <div className="form-group"><label className="form-label">Motivo</label><input className="form-input" value={form.motivo} onChange={e => setF('motivo', e.target.value)} placeholder="Ex: cliente aguardando / estoque zerado" /></div>
+                    <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}><button className="btn btn-primary" onClick={handleSolicitar} disabled={saving} style={{ width:'100%' }}>{saving ? '⏳...' : '📨 Solicitar Transferência'}</button></div>
+                </div>
+            </div>
+            <div className="card">
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem', flexWrap:'wrap', gap:'1rem' }}>
+                    <h2 className="card-title" style={{ margin:0 }}>📋 Histórico de Solicitações</h2>
+                    <div style={{ display:'flex', gap:'0.75rem', alignItems:'center' }}>
+                        <select className="form-select" style={{ width:'auto' }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                            <option value="all">Todas</option>
+                            <option value="pendente">🟡 Pendentes</option>
+                            <option value="aprovada">🟢 Aprovadas</option>
+                            <option value="negada">🔴 Negadas</option>
+                        </select>
+                        <button className="btn btn-success btn-small" onClick={handleExport}>📥 Relatório</button>
+                    </div>
+                </div>
+                {filtered.length > 0 ? (
+                    <div className="table-container">
+                        <table className="table">
+                            <thead><tr><th>Data</th><th>Produto</th><th>Qtd</th><th>Vendedora</th><th>Motivo</th><th>Status / Origem</th><th>Decidido por</th><th></th></tr></thead>
+                            <tbody>
+                                {filtered.map(t => (
+                                    <tr key={t.id}>
+                                        <td>{parseDateKey(t.date) ? parseDateKey(t.date).toLocaleDateString('pt-BR') : t.date}</td>
+                                        <td style={{ fontWeight:'600' }}>{t.product}</td>
+                                        <td style={{ fontWeight:'700' }}>{num(t.qtd)}</td>
+                                        <td>{t.vendedora || '-'}</td>
+                                        <td style={{ fontSize:'0.85rem', color:'var(--text-secondary)' }}>{t.motivo || '-'}</td>
+                                        <td>{statusBadge(t)}</td>
+                                        <td style={{ fontSize:'0.85rem', color:'var(--text-secondary)' }}>{t.aprovadoPor || '-'}{t.decididoEm ? <div style={{ fontSize:'0.72rem' }}>{t.decididoEm}</div> : null}</td>
+                                        <td>{t.status === 'pendente' && <button className="btn btn-danger btn-small" onClick={() => handleCancelar(t)}>🗑️</button>}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <div className="empty-state"><div className="empty-state-icon">🔁</div><p>Nenhuma solicitação{statusFilter !== 'all' ? ' com este status' : ''}</p></div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function AdminTransferenciasPage({ storeTransfs, aprovadorNome, showToast }) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const [refMonth, setRefMonth] = useState(todayStr.slice(0, 7));
+    const [lojaFiltro, setLojaFiltro] = useState('all');
+    const [statusFiltro, setStatusFiltro] = useState('all');
+    const [origens, setOrigens] = useState({}); // { 'storeId-transfId': origemId }
+    const [deciding, setDeciding] = useState(null);
+
+    const all = useMemo(() => Object.values(storeTransfs).flat(), [storeTransfs]);
+    const pendentes = useMemo(() => all.filter(t => t.status === 'pendente' && (lojaFiltro === 'all' || t.storeId === lojaFiltro))
+        .sort((a, b) => (a.date > b.date ? 1 : -1)), [all, lojaFiltro]);
+    const doMes = useMemo(() => all.filter(t => t.date && t.date.slice(0, 7) === refMonth
+        && (lojaFiltro === 'all' || t.storeId === lojaFiltro)
+        && (statusFiltro === 'all' || t.status === statusFiltro))
+        .sort((a, b) => (b.date > a.date ? 1 : -1)), [all, refMonth, lojaFiltro, statusFiltro]);
+
+    const aprovar = async (t) => {
+        const key = t.storeId + '-' + t.id;
+        const origemId = origens[key];
+        if (!origemId) { showToast('Escolha de qual loja o produto vai sair', 'error'); return; }
+        const origemNome = (STORES.find(s => s.id === origemId) || {}).name || origemId;
+        setDeciding(key);
+        try {
+            await window.TrocaDB.atualizarTransferencia(t.storeId, t.id, {
+                status: 'aprovada', origemId, origemNome,
+                aprovadoPor: aprovadorNome, decididoEm: new Date().toLocaleString('pt-BR')
+            });
+            showToast('Transferência aprovada! 🟢 Sai de ' + origemNome);
+        } catch(e) { console.error(e); showToast('Erro ao aprovar', 'error'); }
+        finally { setDeciding(null); }
+    };
+
+    const negar = async (t) => {
+        const key = t.storeId + '-' + t.id;
+        setDeciding(key);
+        try {
+            await window.TrocaDB.atualizarTransferencia(t.storeId, t.id, {
+                status: 'negada', aprovadoPor: aprovadorNome, decididoEm: new Date().toLocaleString('pt-BR')
+            });
+            showToast('Transferência negada 🔴');
+        } catch(e) { console.error(e); showToast('Erro ao negar', 'error'); }
+        finally { setDeciding(null); }
+    };
+
+    const handleExport = () => {
+        if (!doMes.length) { alert('Nao ha transferencias no mes'); return; }
+        const wb = XLSX.utils.book_new();
+        const porLojaMap = {};
+        doMes.forEach(t => {
+            const k = t.storeName || '-';
+            if (!porLojaMap[k]) porLojaMap[k] = { total: 0, aprovadas: 0, negadas: 0, pendentes: 0, itens: 0 };
+            porLojaMap[k].total += 1;
+            porLojaMap[k].itens += num(t.qtd);
+            if (t.status === 'aprovada') porLojaMap[k].aprovadas += 1;
+            else if (t.status === 'negada') porLojaMap[k].negadas += 1;
+            else porLojaMap[k].pendentes += 1;
+        });
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(Object.entries(porLojaMap).map(([loja, d]) => ({
+            'Loja Solicitante': loja, 'Solicitacoes': d.total, 'Itens Pedidos': d.itens,
+            'Aprovadas': d.aprovadas, 'Negadas': d.negadas, 'Pendentes': d.pendentes
+        }))), 'Transferencias por Loja');
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(doMes.map(t => ({
+            'Data': t.date, 'Loja Solicitante (destino)': t.storeName, 'Produto': t.product,
+            'Codigo Barras': t.barcode || '', 'Qtd': num(t.qtd), 'Vendedora': t.vendedora || '',
+            'Motivo': t.motivo || '', 'Status': t.status, 'Sai da Loja (origem)': t.origemNome || '',
+            'Decidido por': t.aprovadoPor || '', 'Decidido em': t.decididoEm || '', 'Solicitado em': t.solicitadoEm || ''
+        }))), 'Historico Detalhado');
+        XLSX.writeFile(wb, 'transferencias-' + refMonth + '.xlsx');
+    };
+
+    return (
+        <div>
+            <div className="header">
+                <h1 className="page-title">🔁 Transferências entre Lojas</h1>
+                <p className="page-subtitle">Aprove definindo de qual loja o produto sai — tudo fica no histórico</p>
+            </div>
+            <div className="card">
+                <div className="form-row">
+                    <div className="form-group"><label className="form-label">Mês (histórico)</label><input type="month" className="form-input" value={refMonth} onChange={e => setRefMonth(e.target.value)} /></div>
+                    <div className="form-group">
+                        <label className="form-label">Loja Solicitante</label>
+                        <select className="form-select" value={lojaFiltro} onChange={e => setLojaFiltro(e.target.value)}>
+                            <option value="all">🏪 Todas as Lojas</option>
+                            {STORES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                    </div>
+                    <div className="form-group">
+                        <label className="form-label">Status</label>
+                        <select className="form-select" value={statusFiltro} onChange={e => setStatusFiltro(e.target.value)}>
+                            <option value="all">Todos</option>
+                            <option value="pendente">🟡 Pendentes</option>
+                            <option value="aprovada">🟢 Aprovadas</option>
+                            <option value="negada">🔴 Negadas</option>
+                        </select>
+                    </div>
+                    <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}><button className="btn btn-success" onClick={handleExport} style={{ width:'100%' }}>📥 Histórico do Mês</button></div>
+                </div>
+            </div>
+            <div className="card" style={{ border: pendentes.length > 0 ? '2px solid var(--warning)' : undefined }}>
+                <h2 className="card-title">🟡 Aguardando sua Aprovação ({pendentes.length})</h2>
+                {pendentes.length > 0 ? pendentes.map(t => {
+                    const key = t.storeId + '-' + t.id;
+                    return (
+                        <div key={key} className="item-card" style={{ flexWrap:'wrap', gap:'1rem' }}>
+                            <div className="item-info" style={{ minWidth:'240px' }}>
+                                <div className="item-description">{num(t.qtd)}x {t.product}</div>
+                                <div className="item-condition">{parseDateKey(t.date) ? parseDateKey(t.date).toLocaleDateString('pt-BR') : t.date} • Para: <strong>{t.storeName}</strong>{t.vendedora ? ' • Vend: ' + t.vendedora : ''}{t.motivo ? ' • ' + t.motivo : ''}</div>
+                            </div>
+                            <div style={{ display:'flex', gap:'0.5rem', alignItems:'center', flexWrap:'wrap' }}>
+                                <select className="form-select" style={{ width:'auto', padding:'0.5rem 0.75rem' }} value={origens[key] || ''} onChange={e => setOrigens(p => ({ ...p, [key]: e.target.value }))}>
+                                    <option value="">Sai de qual loja?</option>
+                                    {STORES.filter(s => s.id !== t.storeId).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                </select>
+                                <button className="btn btn-success btn-small" disabled={deciding === key} onClick={() => aprovar(t)}>✅ Aprovar</button>
+                                <button className="btn btn-danger btn-small" disabled={deciding === key} onClick={() => negar(t)}>❌ Negar</button>
+                            </div>
+                        </div>
+                    );
+                }) : (
+                    <div style={{ color:'var(--text-secondary)' }}>Nenhuma solicitação pendente 🎉</div>
+                )}
+            </div>
+            <div className="card">
+                <h2 className="card-title">📜 Histórico de {refMonth.split('-')[1]}/{refMonth.split('-')[0]}</h2>
+                {doMes.length > 0 ? (
+                    <div className="table-container">
+                        <table className="table">
+                            <thead><tr><th>Data</th><th>Destino</th><th>Produto</th><th>Qtd</th><th>Origem (sai de)</th><th>Vendedora</th><th>Motivo</th><th>Status</th><th>Decidido por</th></tr></thead>
+                            <tbody>
+                                {doMes.map(t => (
+                                    <tr key={t.storeId + '-' + t.id}>
+                                        <td>{parseDateKey(t.date) ? parseDateKey(t.date).toLocaleDateString('pt-BR') : t.date}</td>
+                                        <td style={{ fontSize:'0.85rem', fontWeight:'700' }}>{t.storeName}</td>
+                                        <td style={{ fontWeight:'600' }}>{t.product}</td>
+                                        <td style={{ fontWeight:'700' }}>{num(t.qtd)}</td>
+                                        <td style={{ fontWeight:'700', color:'var(--accent)' }}>{t.origemNome || '-'}</td>
+                                        <td>{t.vendedora || '-'}</td>
+                                        <td style={{ fontSize:'0.85rem', color:'var(--text-secondary)' }}>{t.motivo || '-'}</td>
+                                        <td>{t.status === 'pendente' ? <span className="badge badge-pending">🟡</span> : t.status === 'aprovada' ? <span className="badge badge-confirmed">🟢</span> : <span className="badge badge-danger">🔴</span>}</td>
+                                        <td style={{ fontSize:'0.85rem', color:'var(--text-secondary)' }}>{t.aprovadoPor || '-'}{t.decididoEm ? <div style={{ fontSize:'0.72rem' }}>{t.decididoEm}</div> : null}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <div className="empty-state"><div className="empty-state-icon">🔁</div><p>Nenhuma transferência neste mês</p></div>
+                )}
             </div>
         </div>
     );
@@ -3805,6 +4173,19 @@ function AdminComprasPage({ storeInsumos, storeMovs, showToast }) {
                     <span style={{ color:'var(--text-secondary)' }}>Itens precisando de compra (todas as lojas filtradas)</span>
                     <span style={{ fontFamily:'Syne, sans-serif', fontWeight:'800', fontSize:'1.5rem', color: totalItens > 0 ? 'var(--danger)' : 'var(--success)' }}>{totalItens}</span>
                 </div>
+            </div>
+            <div className="card">
+                <h2 className="card-title">🏪 O que precisa ser comprado — por loja</h2>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(190px, 1fr))', gap:'1rem' }}>
+                    {porLoja.map(l => (
+                        <div key={l.id} className="cal-summary-item" style={{ border: l.itens.length > 0 ? '2px solid var(--danger)' : '1px solid var(--success)', cursor:'pointer' }} onClick={() => setLojaFiltro(l.id)}>
+                            <span className="cal-summary-value" style={{ fontSize:'1.6rem', color: l.itens.length > 0 ? 'var(--danger)' : 'var(--success)' }}>{l.itens.length}</span>
+                            <div className="cal-summary-label" style={{ fontWeight:'700' }}>{l.name}</div>
+                            <div className="cal-summary-label">{l.itens.length > 0 ? l.itens.reduce((s, i) => s + sugestaoCompra(i), 0) + ' unid. sugeridas' : 'tudo em dia ✅'}</div>
+                        </div>
+                    ))}
+                </div>
+                {lojaFiltro !== 'all' && <div style={{ marginTop:'1rem' }}><button className="btn btn-outline btn-small" onClick={() => setLojaFiltro('all')}>↩️ Ver todas as lojas</button></div>}
             </div>
             <div className="card">
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem', flexWrap:'wrap', gap:'1rem' }}>
