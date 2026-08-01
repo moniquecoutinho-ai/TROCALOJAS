@@ -2197,7 +2197,7 @@ function EditExchangeModal({ exchange, storeId, onClose, onSaved }) {
 // ===================== FECHAMENTO DE CAIXA =====================
 const EMPTY_FECH = {
     abertura:'', aberturaPor:'', aberturaHora:'',
-    creditoCartao:'', creditoLink:'', debito:'', dinheiro:'', pixQr:'', pixCnpj:'', nfBoleto:'', nfCredito:'',
+    creditoVista:'', creditoParcelado:'', creditoLink:'', debito:'', dinheiro:'', pixQr:'', pixCnpj:'', nfBoleto:'', nfCredito:'',
     sangria:'', usoCaixa:'', observacoes:'',
     vendedoras: [], acessorios: [], intercorrencias: []
 };
@@ -2217,7 +2217,9 @@ function FieldMoney({ label, value, onChange }) {
 }
 
 function calcFechTotais(f) {
-    const totalCredito = num(f.creditoCartao) + num(f.creditoLink);
+    const totalCreditoVista = num(f.creditoVista);
+    const totalCreditoParcelado = num(f.creditoParcelado);
+    const totalCredito = totalCreditoVista + totalCreditoParcelado + num(f.creditoLink);
     const totalPix = num(f.pixQr) + num(f.pixCnpj);
     const totalNF = num(f.nfBoleto) + num(f.nfCredito);
     const totalVendido = totalCredito + num(f.debito) + num(f.dinheiro) + totalPix + totalNF;
@@ -2230,7 +2232,7 @@ function calcFechTotais(f) {
     const totalFretesAcc = (f.acessorios || []).reduce((s, a) => s + num(a.valorFrete), 0);
     const fretesCliente = (f.acessorios || []).filter(a => (a.fretePagoCliente || 'Sim') === 'Sim').reduce((s, a) => s + num(a.valorFrete), 0);
     const fretesEmpresa = totalFretesAcc - fretesCliente;
-    return { totalCredito, totalPix, totalNF, totalVendido, totalSaidas, abertura, saldoDinheiro, totalAcessorios, totalDelivery, totalFretesAcc, fretesCliente, fretesEmpresa };
+    return { totalCredito, totalCreditoVista, totalCreditoParcelado, totalPix, totalNF, totalVendido, totalSaidas, abertura, saldoDinheiro, totalAcessorios, totalDelivery, totalFretesAcc, fretesCliente, fretesEmpresa };
 }
 
 function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fechamentos, showToast }) {
@@ -2241,7 +2243,7 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fech
     const [showPrint, setShowPrint] = useState(false);
     const [fechView, setFechView] = useState('dia');
     const [newVend, setNewVend] = useState({ nome:'', valor:'', atendimentos:'' });
-    const [newAcc, setNewAcc] = useState({ valorVenda:'', tipoVenda:'PIX', origem:'Delivery', valorFrete:'', fretePagoCliente:'Sim', vendedora:'' });
+    const [newAcc, setNewAcc] = useState({ valorVenda:'', tipoVenda:'PIX', origem:'Delivery', valorFrete:'', fretePagoCliente:'Sim', vendedora:'', customerName:'' });
     const [newInt, setNewInt] = useState({ tipo:'Cancelamento', ticket:'', descricao:'' });
 
     useEffect(() => {
@@ -2269,7 +2271,7 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fech
     const diasNoMes = new Date(parseInt(dParts[0]), parseInt(dParts[1]), 0).getDate();
     const objetivoDia = metaMensal > 0 ? metaMensal / diasNoMes : 0;
 
-    const { totalCredito, totalPix, totalNF, totalVendido, totalSaidas, saldoDinheiro, totalAcessorios, totalDelivery } = calcFechTotais(fech);
+    const { totalCredito, totalCreditoVista, totalCreditoParcelado, totalPix, totalNF, totalVendido, totalSaidas, saldoDinheiro, totalAcessorios, totalDelivery } = calcFechTotais(fech);
     const accPorTipo = ACC_TIPOS.map(t => ({ tipo: t, valor: (fech.acessorios || []).filter(a => a.tipoVenda === t).reduce((s, a) => s + (num(a.valorVenda) || num(a.valorItem)), 0) })).filter(x => x.valor > 0);
     const accVendas = (fech.acessorios || []).reduce((s, a) => s + (num(a.valorVenda) || num(a.valorItem)), 0);
     const accFretes = (fech.acessorios || []).reduce((s, a) => s + num(a.valorFrete), 0);
@@ -2287,10 +2289,10 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fech
         setF('acessorios', [...(fech.acessorios || []), {
             id: Date.now(), tipoVenda: newAcc.tipoVenda, origem: newAcc.origem, vendedora: newAcc.vendedora.toUpperCase(),
             valorVenda: num(newAcc.valorVenda), valorFrete: num(newAcc.valorFrete),
-            fretePagoCliente: newAcc.fretePagoCliente,
+            fretePagoCliente: newAcc.fretePagoCliente, customerName: newAcc.customerName,
             totalPago: num(newAcc.valorVenda)
         }]);
-        setNewAcc({ valorVenda:'', tipoVenda:'PIX', origem: newAcc.origem, valorFrete:'', fretePagoCliente:'Sim', vendedora:'' });
+        setNewAcc({ valorVenda:'', tipoVenda:'PIX', origem: newAcc.origem, valorFrete:'', fretePagoCliente:'Sim', vendedora:'', customerName:'' });
     };
     const addInt = () => {
         if (!newInt.descricao && !newInt.ticket) return;
@@ -2321,7 +2323,7 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fech
                 ...fech, storeName,
                 valorTrocas, valorTrocasEntrada, valorTrocasSaida, trocasCount: trocasDoDia.length,
                 metaMensal, objetivoDia, pctBatido,
-                totalCredito, totalPix, totalNF, totalVendido, totalSaidas, saldoDinheiro,
+                totalCredito, totalCreditoVista, totalCreditoParcelado, totalPix, totalNF, totalVendido, totalSaidas, saldoDinheiro,
                 totalAcessorios, totalDelivery
             });
             showToast('Fechamento salvo! ✅');
@@ -2355,7 +2357,7 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fech
             {showPrint && <PrintFechamento storeName={storeName} date={date} fech={fech} trocasDoDia={trocasDoDia}
                 valorTrocas={valorTrocas} valorTrocasEntrada={valorTrocasEntrada} valorTrocasSaida={valorTrocasSaida}
                 objetivoDia={objetivoDia} totalVendido={totalVendido} pctBatido={pctBatido}
-                totalCredito={totalCredito} totalPix={totalPix} totalNF={totalNF} totalSaidas={totalSaidas} saldoDinheiro={saldoDinheiro} />}
+                totalCredito={totalCredito} totalCreditoVista={totalCreditoVista} totalCreditoParcelado={totalCreditoParcelado} totalPix={totalPix} totalNF={totalNF} totalSaidas={totalSaidas} saldoDinheiro={saldoDinheiro} />}
             <div className="header">
                 <h1 className="page-title">🧾 Fechamento de Caixa</h1>
                 <p className="page-subtitle">Trocas do dia entram automaticamente • salve e imprima em PDF para o grupo</p>
@@ -2406,11 +2408,12 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fech
             <div className="card">
                 <h2 className="card-title">💳 Formas de Recebimento</h2>
                 <div className="form-row">
-                    <FieldMoney label="Crédito — Cartão" value={fech.creditoCartao} onChange={v => setF('creditoCartao', v)} />
+                    <FieldMoney label="Crédito — Cartão à Vista" value={fech.creditoVista} onChange={v => setF('creditoVista', v)} />
+                    <FieldMoney label="Crédito — Cartão Parcelado" value={fech.creditoParcelado} onChange={v => setF('creditoParcelado', v)} />
                     <FieldMoney label="Crédito — Link de Pagamento" value={fech.creditoLink} onChange={v => setF('creditoLink', v)} />
-                    <FieldMoney label="Débito" value={fech.debito} onChange={v => setF('debito', v)} />
                 </div>
                 <div className="form-row">
+                    <FieldMoney label="Débito" value={fech.debito} onChange={v => setF('debito', v)} />
                     <FieldMoney label="Dinheiro" value={fech.dinheiro} onChange={v => setF('dinheiro', v)} />
                     <FieldMoney label="PIX — QRCode" value={fech.pixQr} onChange={v => setF('pixQr', v)} />
                     <FieldMoney label="PIX — Chave CNPJ" value={fech.pixCnpj} onChange={v => setF('pixCnpj', v)} />
@@ -2421,6 +2424,8 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fech
                 </div>
                 <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:'1rem', marginTop:'0.5rem' }}>
                     <div className="cal-summary-item"><span className="cal-summary-value">{fmt(totalCredito)}</span><div className="cal-summary-label">💳 Total Crédito</div></div>
+                    <div className="cal-summary-item"><span className="cal-summary-value" style={{ fontSize:'1.15rem' }}>{fmt(totalCreditoVista)}</span><div className="cal-summary-label">💳 Crédito à Vista</div></div>
+                    <div className="cal-summary-item"><span className="cal-summary-value" style={{ fontSize:'1.15rem' }}>{fmt(totalCreditoParcelado)}</span><div className="cal-summary-label">💳 Crédito Parcelado</div></div>
                     <div className="cal-summary-item"><span className="cal-summary-value">{fmt(num(fech.debito))}</span><div className="cal-summary-label">🏧 Total Débito</div></div>
                     <div className="cal-summary-item"><span className="cal-summary-value">{fmt(totalPix)}</span><div className="cal-summary-label">📱 Total PIX</div></div>
                     <div className="cal-summary-item"><span className="cal-summary-value">{fmt(num(fech.dinheiro))}</span><div className="cal-summary-label">💵 Dinheiro</div></div>
@@ -2507,17 +2512,19 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fech
                             <option>Sim</option><option value="Não">Não — empresa paga</option>
                         </select>
                     </div>
+                    <div className="form-group"><label className="form-label">Nome do Cliente</label><input className="form-input" value={newAcc.customerName} onChange={e => setNewAcc({...newAcc, customerName: e.target.value})} placeholder="Nome do cliente do frete" /></div>
                     <div className="form-group"><label className="form-label">Vendedora</label><input className="form-input" value={newAcc.vendedora} onChange={e => setNewAcc({...newAcc, vendedora: e.target.value})} placeholder="Nome" list="vendedoras-list" /></div>
                     <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}><button type="button" className="btn btn-primary" onClick={addAcc} style={{ width:'100%' }}>➕</button></div>
                 </div>
                 {(fech.acessorios || []).length > 0 && (
                     <div className="table-container">
                         <table className="table">
-                            <thead><tr><th>Origem</th><th>Venda (PDV)</th><th>Tipo</th><th>Frete<br/><span style={{ fontWeight:'400', textTransform:'none', fontSize:'0.72rem' }}>(à parte — não soma na venda)</span></th><th>Vendedora</th><th></th></tr></thead>
+                            <thead><tr><th>Origem</th><th>Cliente</th><th>Venda (PDV)</th><th>Tipo</th><th>Frete<br/><span style={{ fontWeight:'400', textTransform:'none', fontSize:'0.72rem' }}>(à parte — não soma na venda)</span></th><th>Vendedora</th><th></th></tr></thead>
                             <tbody>
                                 {(fech.acessorios || []).map(a => (
                                     <tr key={a.id}>
                                         <td><span className={a.origem === 'Delivery' ? 'badge badge-pending' : 'badge badge-confirmed'} style={{ padding:'0.25rem 0.6rem', fontSize:'0.78rem' }}>{a.origem === 'Delivery' ? '🛵 Delivery' : '🏪 Loja'}</span></td>
+                                        <td>{a.customerName || '-'}</td>
                                         <td style={{ fontWeight:'700', color:'var(--accent)' }}>{fmt(num(a.valorVenda) || num(a.valorItem))}</td>
                                         <td>{a.tipoVenda}</td>
                                         <td style={{ color:'var(--text-secondary)' }}>{fmt(a.valorFrete)}{num(a.valorFrete) > 0 && <div style={{ fontSize:'0.72rem' }}>{(a.fretePagoCliente || 'Sim') === 'Sim' ? '👤 cliente paga' : '🏢 empresa paga'}</div>}</td>
@@ -2634,7 +2641,7 @@ function FechamentoPage({ storeId, storeName, exchanges, metas, vendedoras, fech
     );
 }
 
-function PrintFechamento({ storeName, date, fech, trocasDoDia, valorTrocas, valorTrocasEntrada, valorTrocasSaida, objetivoDia, totalVendido, pctBatido, totalCredito, totalPix, totalNF, totalSaidas, saldoDinheiro }) {
+function PrintFechamento({ storeName, date, fech, trocasDoDia, valorTrocas, valorTrocasEntrada, valorTrocasSaida, objetivoDia, totalVendido, pctBatido, totalCredito, totalCreditoVista, totalCreditoParcelado, totalPix, totalNF, totalSaidas, saldoDinheiro }) {
     return (
         <div id="print-fechamento" style={{ position:'fixed', top:0, left:0, width:'100%', zIndex:99999, background:'white', minHeight:'100vh', padding:'1.5rem' }}>
             <div className="receipt-wrap" style={{ maxWidth:'680px', width:'100%' }}>
@@ -2647,7 +2654,8 @@ function PrintFechamento({ storeName, date, fech, trocasDoDia, valorTrocas, valo
                 <div className="receipt-row"><span>% Batido:</span><strong>{objetivoDia > 0 ? pctBatido.toFixed(0) + '%' : '-'}</strong></div>
                 <hr className="receipt-divider" />
                 <div className="receipt-section-title">FORMAS DE RECEBIMENTO</div>
-                <div className="receipt-item"><span>Crédito — Cartão</span><strong>{fmt(num(fech.creditoCartao))}</strong></div>
+                <div className="receipt-item"><span>Crédito — Cartão à Vista</span><strong>{fmt(num(fech.creditoVista))}</strong></div>
+                <div className="receipt-item"><span>Crédito — Cartão Parcelado</span><strong>{fmt(num(fech.creditoParcelado))}</strong></div>
                 <div className="receipt-item"><span>Crédito — Link de Pagamento</span><strong>{fmt(num(fech.creditoLink))}</strong></div>
                 <div className="receipt-item"><span>Débito</span><strong>{fmt(num(fech.debito))}</strong></div>
                 <div className="receipt-item"><span>Dinheiro</span><strong>{fmt(num(fech.dinheiro))}</strong></div>
@@ -2670,7 +2678,7 @@ function PrintFechamento({ storeName, date, fech, trocasDoDia, valorTrocas, valo
                         <hr className="receipt-divider" />
                         <div className="receipt-section-title">DELIVERY, FRETE, BANDEJAS, CAIXAS E ACESSÓRIOS</div>
                         {(fech.acessorios || []).map(a => (
-                            <div key={a.id} className="receipt-item"><span>{a.origem === 'Delivery' ? '[DELIVERY] ' : '[LOJA] '}{a.tipoVenda}{a.vendedora ? ' • ' + a.vendedora : ''} (frete {fmt(num(a.valorFrete))} — {(a.fretePagoCliente || 'Sim') === 'Sim' ? 'cliente paga' : 'EMPRESA paga'})</span><strong>{fmt(num(a.valorVenda) || num(a.valorItem))}</strong></div>
+                            <div key={a.id} className="receipt-item"><span>{a.origem === 'Delivery' ? '[DELIVERY] ' : '[LOJA] '}{a.customerName ? a.customerName + ' • ' : ''}{a.tipoVenda}{a.vendedora ? ' • ' + a.vendedora : ''} (frete {fmt(num(a.valorFrete))} — {(a.fretePagoCliente || 'Sim') === 'Sim' ? 'cliente paga' : 'EMPRESA paga'})</span><strong>{fmt(num(a.valorVenda) || num(a.valorItem))}</strong></div>
                         ))}
                         <div className="receipt-total"><span>TOTAL VENDAS DA SEÇÃO (sem frete)</span><span>{fmt((fech.acessorios || []).reduce((s, a) => s + (num(a.valorVenda) || num(a.valorItem)), 0))}</span></div>
                         <div className="receipt-item"><span>Fretes pagos pelo CLIENTE (a parte)</span><strong>{fmt((fech.acessorios || []).filter(a => (a.fretePagoCliente || 'Sim') === 'Sim').reduce((s, a) => s + num(a.valorFrete), 0))}</strong></div>
@@ -2744,10 +2752,10 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
     }, [storeFechamentos, range, storeFilter]);
 
     const totals = useMemo(() => {
-        const t = { credito: 0, debito: 0, pix: 0, dinheiro: 0, nf: 0, vendido: 0, trocas: 0, sangria: 0, usoCaixa: 0, saldo: 0, objetivo: 0, abertura: 0, acessorios: 0, delivery: 0, fretesAcc: 0, fretesCli: 0, fretesEmp: 0 };
+        const t = { credito: 0, creditoVista: 0, creditoParcelado: 0, debito: 0, pix: 0, dinheiro: 0, nf: 0, vendido: 0, trocas: 0, sangria: 0, usoCaixa: 0, saldo: 0, objetivo: 0, abertura: 0, acessorios: 0, delivery: 0, fretesAcc: 0, fretesCli: 0, fretesEmp: 0 };
         filtered.forEach(f => {
             const c = calcFechTotais(f);
-            t.credito += c.totalCredito; t.debito += num(f.debito); t.pix += c.totalPix;
+            t.credito += c.totalCredito; t.creditoVista += num(c.totalCreditoVista); t.creditoParcelado += num(c.totalCreditoParcelado); t.debito += num(f.debito); t.pix += c.totalPix;
             t.dinheiro += num(f.dinheiro); t.nf += c.totalNF; t.vendido += c.totalVendido;
             t.trocas += num(f.valorTrocas); t.sangria += num(f.sangria); t.usoCaixa += num(f.usoCaixa);
             t.saldo += c.saldoDinheiro; t.objetivo += num(f.objetivoDia); t.abertura += num(f.abertura);
@@ -2796,7 +2804,7 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
                 'Abertura': num(f.abertura), 'Aberto Por': f.aberturaPor || '', 'Hora Abertura': f.aberturaHora || '',
                 'Objetivo Dia': num(f.objetivoDia), 'Vendido': c.totalVendido,
                 '% Batido': num(f.objetivoDia) > 0 ? Math.round((c.totalVendido / num(f.objetivoDia)) * 100) + '%' : '-',
-                'Credito Cartao': num(f.creditoCartao), 'Credito Link': num(f.creditoLink),
+                'Credito a Vista': num(f.creditoVista), 'Credito Parcelado': num(f.creditoParcelado), 'Credito Link': num(f.creditoLink),
                 'Debito': num(f.debito), 'Dinheiro': num(f.dinheiro),
                 'PIX QRCode': num(f.pixQr), 'PIX CNPJ': num(f.pixCnpj),
                 'NF Boleto': num(f.nfBoleto), 'NF Credito': num(f.nfCredito),
@@ -2829,7 +2837,7 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
         if (deliveriesPeriodo.length) {
             XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(deliveriesPeriodo.map(a => ({
                 'Data': a.date, 'Loja': a.storeName || fixedStoreName || '', 'Origem': a.origem || '',
-                'Vendedora Responsavel': a.vendedora || '', 'Tipo de Venda': a.tipoVenda || '',
+                'Cliente do Frete': a.customerName || '', 'Vendedora Responsavel': a.vendedora || '', 'Tipo de Venda': a.tipoVenda || '',
                 'Venda PDV (R$)': num(a.valorVenda) || num(a.valorItem), 'Frete a parte (R$)': num(a.valorFrete),
                 'Frete pago por': num(a.valorFrete) > 0 ? ((a.fretePagoCliente || 'Sim') === 'Sim' ? 'CLIENTE' : 'EMPRESA') : ''
             }))), 'Delivery-Acessorios');
@@ -2863,7 +2871,8 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumo), 'Delivery por Loja');
         // Aba 2: detalhado com responsavel
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(soDelivery.map(a => ({
-            'Data': a.date, 'Loja': a.storeName || fixedStoreName || '', 'Vendedora Responsavel': a.vendedora || '',
+            'Data': a.date, 'Loja': a.storeName || fixedStoreName || '', 'Cliente do Frete': a.customerName || '',
+            'Vendedora Responsavel': a.vendedora || '',
             'Tipo de Venda': a.tipoVenda || '', 'Venda PDV (R$)': num(a.valorVenda) || num(a.valorItem),
             'Frete a parte (R$)': num(a.valorFrete),
             'Frete pago por': num(a.valorFrete) > 0 ? ((a.fretePagoCliente || 'Sim') === 'Sim' ? 'CLIENTE' : 'EMPRESA') : ''
@@ -2926,7 +2935,7 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
                 </div>
             </div>
             <div className="stats-grid">
-                <div className="stat-card"><span className="stat-icon">💳</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.credito)}</span><span className="stat-label">Crédito</span></div>
+                <div className="stat-card"><span className="stat-icon">💳</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.credito)}</span><span className="stat-label">Crédito (à vista {fmt(totals.creditoVista)} • parcelado {fmt(totals.creditoParcelado)})</span></div>
                 <div className="stat-card"><span className="stat-icon">🏧</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.debito)}</span><span className="stat-label">Débito</span></div>
                 <div className="stat-card"><span className="stat-icon">📱</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.pix)}</span><span className="stat-label">PIX</span></div>
                 <div className="stat-card"><span className="stat-icon">💵</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.dinheiro)}</span><span className="stat-label">Dinheiro</span></div>
@@ -3014,13 +3023,14 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
                     <h2 className="card-title">🛵 Delivery / Acessórios no Período — quem fez cada venda</h2>
                     <div className="table-container">
                         <table className="table">
-                            <thead><tr><th>Data</th><th>Loja</th><th>Origem</th><th>Vendedora</th><th>Tipo</th><th>Venda (PDV)</th><th>Frete<br/><span style={{ fontWeight:'400', textTransform:'none', fontSize:'0.72rem' }}>(à parte — não soma)</span></th></tr></thead>
+                            <thead><tr><th>Data</th><th>Loja</th><th>Origem</th><th>Cliente do Frete</th><th>Vendedora</th><th>Tipo</th><th>Venda (PDV)</th><th>Frete<br/><span style={{ fontWeight:'400', textTransform:'none', fontSize:'0.72rem' }}>(à parte — não soma)</span></th></tr></thead>
                             <tbody>
                                 {deliveriesPeriodo.map((a, idx) => (
                                     <tr key={idx}>
                                         <td>{parseDateKey(a.date) ? parseDateKey(a.date).toLocaleDateString('pt-BR') : a.date}</td>
                                         <td style={{ fontSize:'0.85rem' }}>{a.storeName || fixedStoreName || '-'}</td>
                                         <td><span className={a.origem === 'Delivery' ? 'badge badge-pending' : 'badge badge-confirmed'} style={{ padding:'0.25rem 0.6rem', fontSize:'0.78rem' }}>{a.origem === 'Delivery' ? '🛵 Delivery' : '🏪 Loja'}</span></td>
+                                        <td>{a.customerName || '-'}</td>
                                         <td style={{ fontWeight:'700', color:'var(--accent)' }}>{a.vendedora || '⚠️ sem vendedora'}</td>
                                         <td>{a.tipoVenda || '-'}</td>
                                         <td style={{ fontWeight:'700', color:'var(--success)' }}>{fmt(num(a.valorVenda) || num(a.valorItem))}</td>
@@ -3206,7 +3216,8 @@ function PrintAdminFechamentos({ filtered, totals, range, ranking, inters, store
                 <div className="receipt-logo">FECHAMENTO CONSOLIDADO</div>
                 <div className="receipt-sub">{lojaLabel} — {range[0]} a {range[1]}</div>
                 <hr className="receipt-divider" />
-                <div className="receipt-item"><span>Crédito</span><strong>{fmt(totals.credito)}</strong></div>
+                <div className="receipt-item"><span>Crédito à Vista</span><strong>{fmt(totals.creditoVista)}</strong></div>
+                <div className="receipt-item"><span>Crédito Parcelado</span><strong>{fmt(totals.creditoParcelado)}</strong></div>
                 <div className="receipt-item"><span>Débito</span><strong>{fmt(totals.debito)}</strong></div>
                 <div className="receipt-item"><span>PIX</span><strong>{fmt(totals.pix)}</strong></div>
                 <div className="receipt-item"><span>Dinheiro</span><strong>{fmt(totals.dinheiro)}</strong></div>
@@ -3240,7 +3251,7 @@ function PrintAdminFechamentos({ filtered, totals, range, ranking, inters, store
                         <hr className="receipt-divider" />
                         <div className="receipt-section-title">DELIVERY / ACESSORIOS — RESPONSAVEL POR CADA UM</div>
                         {deliveriesPeriodo.map((a, idx) => (
-                            <div key={idx} className="receipt-item"><span>{a.date} • {a.storeName || fixedStoreName || ''} • {a.origem === 'Delivery' ? 'DELIVERY' : 'LOJA'} • Vend: {a.vendedora || 'SEM VENDEDORA'} • {a.tipoVenda} (frete {fmt(num(a.valorFrete))})</span><strong>{fmt(num(a.valorVenda) || num(a.valorItem))}</strong></div>
+                            <div key={idx} className="receipt-item"><span>{a.date} • {a.storeName || fixedStoreName || ''} • {a.origem === 'Delivery' ? 'DELIVERY' : 'LOJA'}{a.customerName ? ' • Cliente: ' + a.customerName : ''} • Vend: {a.vendedora || 'SEM VENDEDORA'} • {a.tipoVenda} (frete {fmt(num(a.valorFrete))})</span><strong>{fmt(num(a.valorVenda) || num(a.valorItem))}</strong></div>
                         ))}
                     </>
                 )}
