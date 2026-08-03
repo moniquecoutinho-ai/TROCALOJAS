@@ -707,12 +707,25 @@
         }, function() { callback({}); });
     }
 
+    // ===== METAS INDIVIDUAIS POR VENDEDORA =====
+    async function salvarMetasVendedoras(metasVend) {
+        const ref = db.collection("config").doc("metas_vendedoras");
+        await ref.set({ metasVend: metasVend, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    }
+
+    function ouvirMetasVendedoras(callback) {
+        const ref = db.collection("config").doc("metas_vendedoras");
+        return ref.onSnapshot(function(snap) {
+            callback(snap.exists ? (snap.data().metasVend || {}) : {});
+        }, function() { callback({}); });
+    }
+
     window.TrocaDB = {
         salvarTroca, atualizarStatus, atualizarTroca, deletarTroca,
         ouvirTrocas, ouvirTodasLojas, salvarEstoque, ouvirEstoque,
         seedInventoryAllStores,
         salvarFechamento, getFechamento, ouvirTodosFechamentos, ouvirFechamentosLoja,
-        salvarMetas, ouvirMetas,
+        salvarMetas, ouvirMetas, salvarMetasVendedoras, ouvirMetasVendedoras,
         salvarVenda, deletarVenda, atualizarVenda, ouvirVendas, ouvirTodasVendas,
         salvarVendedoras, ouvirVendedoras,
         salvarFrete, atualizarFrete, deletarFrete, ouvirTodosFretes,
@@ -911,6 +924,7 @@ function App() {
     const [exchanges, setExchanges] = useState([]);
     const [inventory, setInventory] = useState(INITIAL_INVENTORY);
     const [metas, setMetas] = useState({});
+    const [metasVend, setMetasVend] = useState({});
     const [vendas, setVendas] = useState([]);
     const [vendedoras, setVendedoras] = useState([]);
     const [fechamentosLoja, setFechamentosLoja] = useState([]);
@@ -945,6 +959,7 @@ function App() {
                 currentStore.id, INITIAL_INVENTORY, (inv) => setInventory(inv)
             );
             unsubMetas = window.TrocaDB.ouvirMetas((m) => setMetas(m || {}));
+            const unsubMetasVend = window.TrocaDB.ouvirMetasVendedoras((m) => setMetasVend(m || {}));
             const unsubVendas = window.TrocaDB.ouvirVendas(currentStore.id, (v) => setVendas(v));
             const unsubVendedoras = window.TrocaDB.ouvirVendedoras(currentStore.id, (v) => setVendedoras(v));
             const unsubFechLoja = window.TrocaDB.ouvirFechamentosLoja(currentStore.id, currentStore.name, (f) => setFechamentosLoja(f));
@@ -954,7 +969,7 @@ function App() {
             const unsubTransf = window.TrocaDB.ouvirTransferencias(currentStore.id, (t) => setTransferencias(t));
             const unsubVales = window.TrocaDB.ouvirValePresente(currentStore.id, (v) => setVales(v));
             const unsubCashback = window.TrocaDB.ouvirCashback(currentStore.id, (v) => setCashbacks(v));
-            unsubscribeRef.current = [unsubExchanges, unsubInventory, unsubMetas, unsubVendas, unsubVendedoras, unsubFechLoja, unsubTesters, unsubInsumos, unsubMovs, unsubTransf, unsubVales, unsubCashback];
+            unsubscribeRef.current = [unsubExchanges, unsubInventory, unsubMetas, unsubMetasVend, unsubVendas, unsubVendedoras, unsubFechLoja, unsubTesters, unsubInsumos, unsubMovs, unsubTransf, unsubVales, unsubCashback];
         } catch(e) {
             console.error(e);
             setSyncStatus('offline');
@@ -1026,6 +1041,7 @@ function App() {
                             { id: 'transferencias', icon: '🔁', label: 'Transferencias' },
                             { id: 'valepresente', icon: '🎁', label: 'Vale Presente' },
                             { id: 'cashback', icon: '💰', label: 'Cashback' },
+                            { id: 'acompanhamento', icon: '📈', label: 'Acompanhamento' },
                             { id: 'reports',      icon: '📊', label: 'Relatorios' },
                         ].map(item => (
                             <li key={item.id} className="nav-item">
@@ -1060,6 +1076,8 @@ function App() {
                     <ValePresentePage storeId={currentStore.id} storeName={currentStore.name} vales={vales} showToast={showToast} />}
                 {currentPage === 'cashback' &&
                     <CashbackPage storeId={currentStore.id} storeName={currentStore.name} cashbacks={cashbacks} showToast={showToast} />}
+                {currentPage === 'acompanhamento' &&
+                    <AcompanhamentoVendedorasPage storeFechamentos={{ [currentStore.id]: fechamentosLoja || [] }} metas={metas} metasVend={metasVend} showToast={showToast} fixedStore={currentStore.id} fixedStoreName={currentStore.name} />}
                 {currentPage === 'reports' &&
                     <ReportsPage exchanges={exchanges} storeName={currentStore.name} />}
             </main>
@@ -1079,6 +1097,7 @@ function AdminView({ onLogout, showToast }) {
     const [storeVales, setStoreVales] = useState({});
     const [storeCashbacks, setStoreCashbacks] = useState({});
     const [metas, setMetas] = useState({});
+    const [metasVend, setMetasVend] = useState({});
     const [selectedStore, setSelectedStore] = useState('all');
     const [selectedExchange, setSelectedExchange] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -1129,6 +1148,7 @@ function AdminView({ onLogout, showToast }) {
                 setStoreMovs(prev => ({ ...prev, [storeId]: movs }));
             }));
             unsubs.push(window.TrocaDB.ouvirMetas((m) => setMetas(m || {})));
+            unsubs.push(window.TrocaDB.ouvirMetasVendedoras((m) => setMetasVend(m || {})));
         } catch(e) { console.error(e); setLoading(false); }
         unsubRef.current = () => unsubs.forEach(u => u && u());
         return () => unsubRef.current && unsubRef.current();
@@ -1186,6 +1206,11 @@ function AdminView({ onLogout, showToast }) {
                         <li className="nav-item">
                             <div className={`nav-link ${adminPage === 'metas' ? 'active' : ''}`} onClick={() => setAdminPage('metas')}>
                                 <span className="nav-icon">🎯</span>Metas das Lojas
+                            </div>
+                        </li>
+                        <li className="nav-item">
+                            <div className={`nav-link ${adminPage === 'acompanhamento' ? 'active' : ''}`} onClick={() => setAdminPage('acompanhamento')}>
+                                <span className="nav-icon">📈</span>Acompanhamento
                             </div>
                         </li>
                         <li className="nav-item">
@@ -1250,7 +1275,10 @@ function AdminView({ onLogout, showToast }) {
                     <AdminFechamentosPage storeFechamentos={storeFechamentos} storeExchanges={storeExchanges} metas={metas} showToast={showToast} />
                 )}
                 {adminPage === 'metas' && (
-                    <AdminMetasPage metas={metas} showToast={showToast} />
+                    <AdminMetasPage metas={metas} metasVend={metasVend} showToast={showToast} />
+                )}
+                {adminPage === 'acompanhamento' && (
+                    <AcompanhamentoVendedorasPage storeFechamentos={storeFechamentos} metas={metas} metasVend={metasVend} showToast={showToast} />
                 )}
                 {adminPage === 'vendedoras' && (
                     <AdminVendedorasPage showToast={showToast} />
@@ -1383,6 +1411,9 @@ function AdminView({ onLogout, showToast }) {
 function FinanceiroView({ onLogout, showToast }) {
     const [storeFechamentos, setStoreFechamentos] = useState({});
     const [storeExchanges, setStoreExchanges] = useState({});
+    const [storeVendas, setStoreVendas] = useState({});
+    const [metas, setMetas] = useState({});
+    const [metasVend, setMetasVend] = useState({});
     const [storeTesters, setStoreTesters] = useState({});
     const [storeInsumos, setStoreInsumos] = useState({});
     const [storeMovs, setStoreMovs] = useState({});
@@ -1403,6 +1434,11 @@ function FinanceiroView({ onLogout, showToast }) {
             unsubs.push(window.TrocaDB.ouvirTodasLojas(STORES, (storeId, trocas) => {
                 setStoreExchanges(prev => ({ ...prev, [storeId]: trocas }));
             }));
+            unsubs.push(window.TrocaDB.ouvirTodasVendas(STORES, (storeId, vs) => {
+                setStoreVendas(prev => ({ ...prev, [storeId]: vs }));
+            }));
+            unsubs.push(window.TrocaDB.ouvirMetas((m) => setMetas(m || {})));
+            unsubs.push(window.TrocaDB.ouvirMetasVendedoras((m) => setMetasVend(m || {})));
             unsubs.push(window.TrocaDB.ouvirTodosTesters(STORES, (storeId, testers) => {
                 setStoreTesters(prev => ({ ...prev, [storeId]: testers }));
             }));
@@ -1467,6 +1503,11 @@ function FinanceiroView({ onLogout, showToast }) {
                             </div>
                         </li>
                         <li className="nav-item">
+                            <div className={`nav-link ${finPage === 'acompanhamento' ? 'active' : ''}`} onClick={() => setFinPage('acompanhamento')}>
+                                <span className="nav-icon">📈</span>Acompanhamento
+                            </div>
+                        </li>
+                        <li className="nav-item">
                             <div className={`nav-link ${finPage === 'valepresente' ? 'active' : ''}`} onClick={() => setFinPage('valepresente')}>
                                 <span className="nav-icon">🎁</span>Vale Presente
                             </div>
@@ -1490,6 +1531,7 @@ function FinanceiroView({ onLogout, showToast }) {
                 {finPage === 'testers' && <AdminTestersPage storeTesters={storeTesters} aprovadorNome="Bruno (Financeiro)" showToast={showToast} />}
                 {finPage === 'descontos' && <AdminDescontosPage storeVendas={storeVendas} aprovadorNome="Bruno (Financeiro)" showToast={showToast} />}
                 {finPage === 'transferencias' && <AdminTransferenciasPage storeTransfs={storeTransfs} aprovadorNome="Bruno (Financeiro)" showToast={showToast} />}
+                {finPage === 'acompanhamento' && <AcompanhamentoVendedorasPage storeFechamentos={storeFechamentos} metas={metas} metasVend={metasVend} showToast={showToast} />}
                 {finPage === 'valepresente' && <AdminValePresentePage storeVales={storeVales} showToast={showToast} />}
                 {finPage === 'cashback' && <AdminCashbackPage storeCashbacks={storeCashbacks} showToast={showToast} />}
                 {finPage === 'compras' && <AdminComprasPage storeInsumos={storeInsumos} storeMovs={storeMovs} showToast={showToast} />}
@@ -5351,17 +5393,145 @@ function AdminVendedorasPage({ showToast }) {
     );
 }
 
-function AdminMetasPage({ metas, showToast }) {
+function AcompanhamentoVendedorasPage({ storeFechamentos, metas, metasVend, showToast, fixedStore, fixedStoreName }) {
+    const now = new Date();
+    const [month, setMonth] = useState(now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0'));
+    const [lojaFiltro, setLojaFiltro] = useState(fixedStore || 'all');
+
+    const lojasParaMostrar = fixedStore ? [fixedStore] : (lojaFiltro === 'all' ? STORES.map(s => s.id) : [lojaFiltro]);
+
+    const dadosPorLoja = useMemo(() => {
+        return lojasParaMostrar.map(storeId => {
+            const storeName = fixedStore ? (fixedStoreName || storeId) : ((STORES.find(s => s.id === storeId) || {}).name || storeId);
+            const fechs = (storeFechamentos[storeId] || []).filter(f => f.date && f.date.slice(0, 7) === month);
+            const porVend = {};
+            fechs.forEach(f => {
+                (f.vendedoras || []).forEach(v => {
+                    const nome = (v.nome || '').toUpperCase();
+                    if (!nome) return;
+                    if (!porVend[nome]) porVend[nome] = { nome, valor: 0, atendimentos: 0 };
+                    porVend[nome].valor += num(v.valor);
+                    porVend[nome].atendimentos += num(v.atendimentos);
+                });
+            });
+            // inclui vendedoras que tem meta definida mas ainda sem vendas lancadas no mes
+            const metasDaLoja = (metasVend || {})[storeId] || {};
+            Object.keys(metasDaLoja).forEach(nome => {
+                if (!porVend[nome]) porVend[nome] = { nome, valor: 0, atendimentos: 0 };
+            });
+            const lista = Object.values(porVend).map(v => {
+                const meta = num((metasDaLoja[v.nome] || {})[month]);
+                const pct = meta > 0 ? (v.valor / meta) * 100 : null;
+                const tm = v.atendimentos > 0 ? v.valor / v.atendimentos : 0;
+                return { ...v, meta, pct, tm };
+            }).sort((a, b) => b.valor - a.valor);
+            const metaLoja = num(((metas || {})[storeId] || {})[month]);
+            const totalVendido = lista.reduce((s, v) => s + v.valor, 0);
+            return { storeId, storeName, lista, metaLoja, totalVendido };
+        });
+    }, [storeFechamentos, metas, metasVend, month, lojasParaMostrar.join(','), fixedStore, fixedStoreName]);
+
+    const corPct = (pct) => pct === null ? 'var(--text-secondary)' : pct >= 100 ? 'var(--success)' : pct >= 70 ? 'var(--warning)' : 'var(--danger)';
+
+    const handleExport = () => {
+        const linhas = dadosPorLoja.flatMap(l => l.lista.map(v => ({
+            'Loja': l.storeName, 'Vendedora': v.nome, 'Vendido no Mês (R$)': v.valor, 'Meta Mensal (R$)': v.meta,
+            '% Atingido': v.pct !== null ? v.pct.toFixed(1) + '%' : '-', 'Atendimentos': v.atendimentos, 'Ticket Médio (R$)': v.tm
+        })));
+        if (!linhas.length) { alert('Nao ha dados no periodo'); return; }
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(linhas), 'Acompanhamento Vendedoras');
+        XLSX.writeFile(wb, 'acompanhamento-vendedoras-' + month + '.xlsx');
+    };
+
+    return (
+        <div>
+            {!fixedStore && (
+                <div className="header">
+                    <h1 className="page-title">📈 Acompanhamento de Vendas por Vendedora</h1>
+                    <p className="page-subtitle">Soma automática do que cada vendedora lança no fechamento de caixa, comparado com a meta dela</p>
+                </div>
+            )}
+            <div className="card">
+                <div className="form-row">
+                    <div className="form-group"><label className="form-label">Mês</label><input type="month" className="form-input" value={month} onChange={e => setMonth(e.target.value)} /></div>
+                    {!fixedStore && (
+                        <div className="form-group">
+                            <label className="form-label">Loja</label>
+                            <select className="form-select" value={lojaFiltro} onChange={e => setLojaFiltro(e.target.value)}>
+                                <option value="all">🏪 Todas as Lojas</option>
+                                {STORES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            </select>
+                        </div>
+                    )}
+                    <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}><button className="btn btn-success" onClick={handleExport} style={{ width:'100%' }}>📥 Exportar Excel</button></div>
+                </div>
+            </div>
+            {dadosPorLoja.map(l => {
+                const maxV = Math.max(...l.lista.map(v => Math.max(v.valor, v.meta)), 1);
+                const pctLoja = l.metaLoja > 0 ? (l.totalVendido / l.metaLoja) * 100 : null;
+                return (
+                    <div key={l.storeId} className="card">
+                        <h2 className="card-title">🏪 {l.storeName}</h2>
+                        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:'1rem', marginBottom:'1.5rem' }}>
+                            <div className="cal-summary-item"><span className="cal-summary-value">{fmt(l.totalVendido)}</span><div className="cal-summary-label">💰 Total Vendido (soma vendedoras)</div></div>
+                            <div className="cal-summary-item"><span className="cal-summary-value">{l.metaLoja > 0 ? fmt(l.metaLoja) : '-'}</span><div className="cal-summary-label">🎯 Meta da Loja</div></div>
+                            <div className="cal-summary-item" style={{ border: pctLoja !== null ? '1px solid ' + corPct(pctLoja) : undefined }}><span className="cal-summary-value" style={{ color: corPct(pctLoja) }}>{pctLoja !== null ? pctLoja.toFixed(1) + '%' : '-'}</span><div className="cal-summary-label">📊 % da Meta Batido</div></div>
+                        </div>
+                        {l.lista.length > 0 ? l.lista.map(v => (
+                            <div key={v.nome} style={{ marginBottom:'1.25rem' }}>
+                                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:'0.35rem', fontSize:'0.95rem', flexWrap:'wrap', gap:'0.5rem' }}>
+                                    <span style={{ fontWeight:'700' }}>{v.nome}</span>
+                                    <span>
+                                        <strong>{fmt(v.valor)}</strong>
+                                        {v.meta > 0 && <span style={{ color:'var(--text-secondary)' }}> / meta {fmt(v.meta)}</span>}
+                                        {v.pct !== null && <span style={{ fontWeight:'800', color: corPct(v.pct), marginLeft:'0.5rem' }}>{v.pct.toFixed(1)}%</span>}
+                                    </span>
+                                </div>
+                                <div style={{ background:'var(--bg-dark)', borderRadius:'8px', height:'20px', overflow:'hidden', position:'relative' }}>
+                                    <div style={{ width: (Math.min(v.valor / maxV, 1) * 100) + '%', height:'100%', background: corPct(v.pct), borderRadius:'8px', transition:'width 0.5s ease' }}></div>
+                                    {v.meta > 0 && <div style={{ position:'absolute', top:0, left: (Math.min(v.meta / maxV, 1) * 100) + '%', width:'2px', height:'100%', background:'white', opacity:0.6 }}></div>}
+                                </div>
+                                <div style={{ fontSize:'0.78rem', color:'var(--text-secondary)', marginTop:'0.2rem' }}>{v.atendimentos} atendimento(s) • TM {fmt(v.tm)}</div>
+                            </div>
+                        )) : (
+                            <div style={{ color:'var(--text-secondary)' }}>Nenhuma venda lançada no fechamento este mês.</div>
+                        )}
+                    </div>
+                );
+            })}
+        </div>
+    );
+}
+
+function AdminMetasPage({ metas, metasVend, showToast }) {
     const now = new Date();
     const [month, setMonth] = useState(now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0'));
     const [values, setValues] = useState({});
     const [saving, setSaving] = useState(false);
+    const [lojaVendSel, setLojaVendSel] = useState(STORES[0].id);
+    const [vendedorasLoja, setVendedorasLoja] = useState([]);
+    const [valuesVend, setValuesVend] = useState({});
+    const [savingVend, setSavingVend] = useState(false);
 
     useEffect(() => {
         const v = {};
         STORES.forEach(s => { v[s.id] = (((metas || {})[s.id]) || {})[month] || ''; });
         setValues(v);
     }, [metas, month]);
+
+    useEffect(() => {
+        const unsub = window.TrocaDB.ouvirVendedoras(lojaVendSel, (v) => setVendedorasLoja((v || []).filter(x => !x.arquivada)));
+        return () => unsub && unsub();
+    }, [lojaVendSel]);
+
+    useEffect(() => {
+        const v = {};
+        vendedorasLoja.forEach(vd => {
+            v[vd.nome] = ((((metasVend || {})[lojaVendSel]) || {})[vd.nome] || {})[month] || '';
+        });
+        setValuesVend(v);
+    }, [metasVend, month, lojaVendSel, vendedorasLoja]);
 
     const mParts = month.split('-');
     const diasNoMes = new Date(parseInt(mParts[0]), parseInt(mParts[1]), 0).getDate();
@@ -5380,6 +5550,33 @@ function AdminMetasPage({ metas, showToast }) {
         } catch(e) { console.error(e); showToast('Erro ao salvar metas', 'error'); }
         finally { setSaving(false); }
     };
+
+    const dividirIgualmente = () => {
+        const metaLoja = num(values[lojaVendSel]);
+        if (!metaLoja || vendedorasLoja.length === 0) { showToast('Defina a meta da loja e cadastre vendedoras primeiro', 'error'); return; }
+        const partes = metaLoja / vendedorasLoja.length;
+        const v = {};
+        vendedorasLoja.forEach(vd => { v[vd.nome] = String(partes.toFixed(2)); });
+        setValuesVend(v);
+    };
+
+    const handleSaveVend = async () => {
+        setSavingVend(true);
+        try {
+            const novo = JSON.parse(JSON.stringify(metasVend || {}));
+            if (!novo[lojaVendSel]) novo[lojaVendSel] = {};
+            vendedorasLoja.forEach(vd => {
+                if (!novo[lojaVendSel][vd.nome]) novo[lojaVendSel][vd.nome] = {};
+                novo[lojaVendSel][vd.nome][month] = num(valuesVend[vd.nome]);
+            });
+            await window.TrocaDB.salvarMetasVendedoras(novo);
+            showToast('Metas por vendedora salvas! ✅');
+        } catch(e) { console.error(e); showToast('Erro ao salvar metas por vendedora', 'error'); }
+        finally { setSavingVend(false); }
+    };
+
+    const totalVend = vendedorasLoja.reduce((s, vd) => s + num(valuesVend[vd.nome]), 0);
+    const metaLojaSel = num(values[lojaVendSel]);
 
     return (
         <div>
@@ -5412,6 +5609,48 @@ function AdminMetasPage({ metas, showToast }) {
                     <div style={{ fontWeight:'700' }}>Total da rede no mês: <span style={{ color:'var(--success)' }}>{fmt(totalMetas)}</span></div>
                     <button className="btn btn-success" onClick={handleSave} disabled={saving}>{saving ? '⏳ Salvando...' : '💾 Salvar Metas'}</button>
                 </div>
+            </div>
+            <div className="card">
+                <h2 className="card-title">🎯 Metas Individuais por Vendedora</h2>
+                <p style={{ color:'var(--text-secondary)', fontSize:'0.9rem', marginTop:'-0.75rem', marginBottom:'1.5rem' }}>Ex: meta da loja R$ 120.000,00 ÷ 3 vendedoras = R$ 40.000,00 cada — ou personalize por pessoa.</p>
+                <div className="form-row">
+                    <div className="form-group">
+                        <label className="form-label">Loja</label>
+                        <select className="form-select" value={lojaVendSel} onChange={e => setLojaVendSel(e.target.value)}>
+                            {STORES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                    </div>
+                    <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}>
+                        <button className="btn btn-outline" onClick={dividirIgualmente} style={{ width:'100%' }}>÷ Dividir Meta da Loja Igualmente</button>
+                    </div>
+                </div>
+                {metaLojaSel > 0 && <div style={{ fontSize:'0.85rem', color:'var(--text-secondary)', marginBottom:'1rem' }}>Meta da loja em {month}: <strong>{fmt(metaLojaSel)}</strong></div>}
+                {vendedorasLoja.length > 0 ? (
+                    <>
+                        <div className="table-container">
+                            <table className="table">
+                                <thead><tr><th>Vendedora</th><th>Meta Mensal (R$)</th></tr></thead>
+                                <tbody>
+                                    {vendedorasLoja.map(vd => (
+                                        <tr key={vd.id}>
+                                            <td style={{ fontWeight:'700' }}>{vd.nome}</td>
+                                            <td>
+                                                <input type="text" inputMode="decimal" className="form-input" style={{ maxWidth:'220px' }} value={valuesVend[vd.nome] || ''} onChange={e => setValuesVend(p => ({ ...p, [vd.nome]: e.target.value }))} placeholder="0,00" />
+                                                {num(valuesVend[vd.nome]) > 0 && <div style={{ fontSize:'0.8rem', color:'var(--text-muted)', marginTop:'0.25rem' }}>= {fmt(num(valuesVend[vd.nome]))}</div>}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:'1.5rem', flexWrap:'wrap', gap:'1rem' }}>
+                            <div style={{ fontWeight:'700' }}>Soma das metas individuais: <span style={{ color: metaLojaSel > 0 && Math.abs(totalVend - metaLojaSel) > 0.5 ? 'var(--warning)' : 'var(--success)' }}>{fmt(totalVend)}</span>{metaLojaSel > 0 && Math.abs(totalVend - metaLojaSel) > 0.5 && <span style={{ fontSize:'0.8rem', color:'var(--warning)', marginLeft:'0.5rem' }}>(diferente da meta da loja)</span>}</div>
+                            <button className="btn btn-success" onClick={handleSaveVend} disabled={savingVend}>{savingVend ? '⏳ Salvando...' : '💾 Salvar Metas por Vendedora'}</button>
+                        </div>
+                    </>
+                ) : (
+                    <div style={{ color:'var(--text-secondary)' }}>Nenhuma vendedora ativa cadastrada nesta loja ainda.</div>
+                )}
             </div>
         </div>
     );
