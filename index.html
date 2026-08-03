@@ -3084,8 +3084,11 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
 }
 
 function FechDashboard({ filtered, totals }) {
+    const creditoLinkCalc = Math.max(totals.credito - num(totals.creditoVista) - num(totals.creditoParcelado), 0);
     const formas = [
-        { label: '💳 Crédito', valor: totals.credito, cor: 'var(--primary)' },
+        { label: '💳 Crédito à Vista', valor: num(totals.creditoVista), cor: 'var(--primary)' },
+        { label: '💳 Crédito Parcelado', valor: num(totals.creditoParcelado), cor: '#8b6fd6' },
+        { label: '🔗 Crédito — Link de Pagamento', valor: creditoLinkCalc, cor: '#5aa9d6' },
         { label: '🏧 Débito', valor: totals.debito, cor: 'var(--secondary-light)' },
         { label: '📱 PIX', valor: totals.pix, cor: 'var(--success)' },
         { label: '💵 Dinheiro', valor: totals.dinheiro, cor: 'var(--accent)' },
@@ -3120,18 +3123,26 @@ function FechDashboard({ filtered, totals }) {
         <>
             <div className="card">
                 <h2 className="card-title">📊 Participação por Forma de Pagamento</h2>
-                {formas.map(f => (
+                <p style={{ color:'var(--text-secondary)', fontSize:'0.9rem', marginTop:'-0.75rem', marginBottom:'1.5rem' }}>Mesma visão de indicadores que as lojas veem — já com o crédito separado em à vista e parcelado.</p>
+                {formas.map((f, i) => (
                     <div key={f.label} style={{ marginBottom:'1rem' }}>
                         <div style={{ display:'flex', justifyContent:'space-between', marginBottom:'0.35rem', fontSize:'0.95rem' }}>
-                            <span style={{ fontWeight:'600' }}>{f.label}</span>
+                            <span style={{ fontWeight: i === 0 ? '800' : '600' }}>{i === 0 ? '🥇 ' : ''}{f.label}</span>
                             <span style={{ fontWeight:'700' }}>{fmt(f.valor)} <span style={{ color:'var(--text-secondary)', fontWeight:'500' }}>({totals.vendido > 0 ? ((f.valor / totals.vendido) * 100).toFixed(1) : 0}%)</span></span>
                         </div>
-                        <div style={{ background:'var(--bg-dark)', borderRadius:'8px', height:'22px', overflow:'hidden' }}>
+                        <div style={{ background:'var(--bg-dark)', borderRadius:'8px', height:'22px', overflow:'hidden', border: i === 0 ? '1px solid ' + f.cor : 'none' }}>
                             <div style={{ width: ((f.valor / maxForma) * 100) + '%', height:'100%', background: f.cor, borderRadius:'8px', transition:'width 0.5s ease' }}></div>
                         </div>
                     </div>
                 ))}
                 {formas.length === 0 && <div style={{ color:'var(--text-secondary)' }}>Nenhum valor lançado no período.</div>}
+                {formas.length > 0 && (
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:'1rem', marginTop:'1.25rem' }}>
+                        <div className="cal-summary-item"><span className="cal-summary-value" style={{ fontSize:'1.15rem' }}>{totals.vendido > 0 ? (((num(totals.creditoVista) + num(totals.creditoParcelado) + creditoLinkCalc) / totals.vendido) * 100).toFixed(1) + '%' : '-'}</span><div className="cal-summary-label">💳 Participação do Cartão (crédito)</div></div>
+                        <div className="cal-summary-item"><span className="cal-summary-value" style={{ fontSize:'1.15rem' }}>{totals.vendido > 0 ? (((num(totals.creditoVista) + num(totals.creditoParcelado) + creditoLinkCalc + totals.debito) / totals.vendido) * 100).toFixed(1) + '%' : '-'}</span><div className="cal-summary-label">💳+🏧 Cartão Total (crédito + débito)</div></div>
+                        <div className="cal-summary-item"><span className="cal-summary-value" style={{ fontSize:'1.15rem' }}>{formas.length > 0 ? formas[0].label : '-'}</span><div className="cal-summary-label">🥇 Maior Indicador do Período</div></div>
+                    </div>
+                )}
             </div>
             {porDia.length > 1 && (
                 <div className="card">
