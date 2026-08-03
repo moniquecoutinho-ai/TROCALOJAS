@@ -5395,15 +5395,21 @@ function AdminVendedorasPage({ showToast }) {
 
 function AcompanhamentoVendedorasPage({ storeFechamentos, metas, metasVend, showToast, fixedStore, fixedStoreName }) {
     const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    const [modo, setModo] = useState('mes'); // 'dia' | 'mes'
+    const [day, setDay] = useState(todayStr);
     const [month, setMonth] = useState(now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0'));
     const [lojaFiltro, setLojaFiltro] = useState(fixedStore || 'all');
 
     const lojasParaMostrar = fixedStore ? [fixedStore] : (lojaFiltro === 'all' ? STORES.map(s => s.id) : [lojaFiltro]);
+    const mesRef = modo === 'dia' ? day.slice(0, 7) : month;
+    const mParts = mesRef.split('-');
+    const diasNoMes = new Date(parseInt(mParts[0]), parseInt(mParts[1]), 0).getDate();
 
     const dadosPorLoja = useMemo(() => {
         return lojasParaMostrar.map(storeId => {
             const storeName = fixedStore ? (fixedStoreName || storeId) : ((STORES.find(s => s.id === storeId) || {}).name || storeId);
-            const fechs = (storeFechamentos[storeId] || []).filter(f => f.date && f.date.slice(0, 7) === month);
+            const fechs = (storeFechamentos[storeId] || []).filter(f => f.date && (modo === 'dia' ? f.date === day : f.date.slice(0, 7) === month));
             const porVend = {};
             fechs.forEach(f => {
                 (f.vendedoras || []).forEach(v => {
@@ -5414,34 +5420,38 @@ function AcompanhamentoVendedorasPage({ storeFechamentos, metas, metasVend, show
                     porVend[nome].atendimentos += num(v.atendimentos);
                 });
             });
-            // inclui vendedoras que tem meta definida mas ainda sem vendas lancadas no mes
+            // inclui vendedoras que tem meta definida mas ainda sem vendas lancadas no periodo
             const metasDaLoja = (metasVend || {})[storeId] || {};
             Object.keys(metasDaLoja).forEach(nome => {
                 if (!porVend[nome]) porVend[nome] = { nome, valor: 0, atendimentos: 0 };
             });
             const lista = Object.values(porVend).map(v => {
-                const meta = num((metasDaLoja[v.nome] || {})[month]);
-                const pct = meta > 0 ? (v.valor / meta) * 100 : null;
+                const metaMensal = num((metasDaLoja[v.nome] || {})[mesRef]);
+                const metaRef = modo === 'dia' ? metaMensal / diasNoMes : metaMensal;
+                const pct = metaRef > 0 ? (v.valor / metaRef) * 100 : null;
                 const tm = v.atendimentos > 0 ? v.valor / v.atendimentos : 0;
-                return { ...v, meta, pct, tm };
+                return { ...v, meta: metaRef, metaMensal, pct, tm };
             }).sort((a, b) => b.valor - a.valor);
-            const metaLoja = num(((metas || {})[storeId] || {})[month]);
+            const metaLojaMensal = num(((metas || {})[storeId] || {})[mesRef]);
+            const metaLoja = modo === 'dia' ? metaLojaMensal / diasNoMes : metaLojaMensal;
             const totalVendido = lista.reduce((s, v) => s + v.valor, 0);
             return { storeId, storeName, lista, metaLoja, totalVendido };
         });
-    }, [storeFechamentos, metas, metasVend, month, lojasParaMostrar.join(','), fixedStore, fixedStoreName]);
+    }, [storeFechamentos, metas, metasVend, modo, day, month, mesRef, diasNoMes, lojasParaMostrar.join(','), fixedStore, fixedStoreName]);
 
     const corPct = (pct) => pct === null ? 'var(--text-secondary)' : pct >= 100 ? 'var(--success)' : pct >= 70 ? 'var(--warning)' : 'var(--danger)';
 
     const handleExport = () => {
+        const rotuloValor = modo === 'dia' ? 'Vendido no Dia (R$)' : 'Vendido no Mês (R$)';
+        const rotuloMeta = modo === 'dia' ? 'Objetivo do Dia (R$)' : 'Meta Mensal (R$)';
         const linhas = dadosPorLoja.flatMap(l => l.lista.map(v => ({
-            'Loja': l.storeName, 'Vendedora': v.nome, 'Vendido no Mês (R$)': v.valor, 'Meta Mensal (R$)': v.meta,
+            'Loja': l.storeName, 'Vendedora': v.nome, [rotuloValor]: v.valor, [rotuloMeta]: v.meta,
             '% Atingido': v.pct !== null ? v.pct.toFixed(1) + '%' : '-', 'Atendimentos': v.atendimentos, 'Ticket Médio (R$)': v.tm
         })));
         if (!linhas.length) { alert('Nao ha dados no periodo'); return; }
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(linhas), 'Acompanhamento Vendedoras');
-        XLSX.writeFile(wb, 'acompanhamento-vendedoras-' + month + '.xlsx');
+        XLSX.writeFile(wb, 'acompanhamento-vendedoras-' + (modo === 'dia' ? day : month) + '.xlsx');
     };
 
     return (
@@ -5452,9 +5462,17 @@ function AcompanhamentoVendedorasPage({ storeFechamentos, metas, metasVend, show
                     <p className="page-subtitle">Soma automática do que cada vendedora lança no fechamento de caixa, comparado com a meta dela</p>
                 </div>
             )}
+            <div className="view-toggle" style={{ maxWidth:'320px' }}>
+                <button className={`view-toggle-btn ${modo === 'dia' ? 'active' : ''}`} onClick={() => setModo('dia')}>📅 Dia</button>
+                <button className={`view-toggle-btn ${modo === 'mes' ? 'active' : ''}`} onClick={() => setModo('mes')}>🗓️ Mês</button>
+            </div>
             <div className="card">
                 <div className="form-row">
-                    <div className="form-group"><label className="form-label">Mês</label><input type="month" className="form-input" value={month} onChange={e => setMonth(e.target.value)} /></div>
+                    {modo === 'dia' ? (
+                        <div className="form-group"><label className="form-label">Dia</label><input type="date" className="form-input" value={day} onChange={e => setDay(e.target.value)} /></div>
+                    ) : (
+                        <div className="form-group"><label className="form-label">Mês</label><input type="month" className="form-input" value={month} onChange={e => setMonth(e.target.value)} /></div>
+                    )}
                     {!fixedStore && (
                         <div className="form-group">
                             <label className="form-label">Loja</label>
@@ -5466,6 +5484,7 @@ function AcompanhamentoVendedorasPage({ storeFechamentos, metas, metasVend, show
                     )}
                     <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}><button className="btn btn-success" onClick={handleExport} style={{ width:'100%' }}>📥 Exportar Excel</button></div>
                 </div>
+                {modo === 'dia' && <div style={{ fontSize:'0.85rem', color:'var(--text-secondary)' }}>Objetivo do dia = meta mensal da vendedora ÷ {diasNoMes} dias do mês.</div>}
             </div>
             {dadosPorLoja.map(l => {
                 const maxV = Math.max(...l.lista.map(v => Math.max(v.valor, v.meta)), 1);
@@ -5474,8 +5493,8 @@ function AcompanhamentoVendedorasPage({ storeFechamentos, metas, metasVend, show
                     <div key={l.storeId} className="card">
                         <h2 className="card-title">🏪 {l.storeName}</h2>
                         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:'1rem', marginBottom:'1.5rem' }}>
-                            <div className="cal-summary-item"><span className="cal-summary-value">{fmt(l.totalVendido)}</span><div className="cal-summary-label">💰 Total Vendido (soma vendedoras)</div></div>
-                            <div className="cal-summary-item"><span className="cal-summary-value">{l.metaLoja > 0 ? fmt(l.metaLoja) : '-'}</span><div className="cal-summary-label">🎯 Meta da Loja</div></div>
+                            <div className="cal-summary-item"><span className="cal-summary-value">{fmt(l.totalVendido)}</span><div className="cal-summary-label">💰 {modo === 'dia' ? 'Total Vendido no Dia' : 'Total Vendido no Mês'} (soma vendedoras)</div></div>
+                            <div className="cal-summary-item"><span className="cal-summary-value">{l.metaLoja > 0 ? fmt(l.metaLoja) : '-'}</span><div className="cal-summary-label">🎯 {modo === 'dia' ? 'Objetivo do Dia' : 'Meta Mensal'} (Loja)</div></div>
                             <div className="cal-summary-item" style={{ border: pctLoja !== null ? '1px solid ' + corPct(pctLoja) : undefined }}><span className="cal-summary-value" style={{ color: corPct(pctLoja) }}>{pctLoja !== null ? pctLoja.toFixed(1) + '%' : '-'}</span><div className="cal-summary-label">📊 % da Meta Batido</div></div>
                         </div>
                         {l.lista.length > 0 ? l.lista.map(v => (
@@ -5484,7 +5503,7 @@ function AcompanhamentoVendedorasPage({ storeFechamentos, metas, metasVend, show
                                     <span style={{ fontWeight:'700' }}>{v.nome}</span>
                                     <span>
                                         <strong>{fmt(v.valor)}</strong>
-                                        {v.meta > 0 && <span style={{ color:'var(--text-secondary)' }}> / meta {fmt(v.meta)}</span>}
+                                        {v.meta > 0 && <span style={{ color:'var(--text-secondary)' }}> / {modo === 'dia' ? 'objetivo do dia' : 'meta'} {fmt(v.meta)}</span>}
                                         {v.pct !== null && <span style={{ fontWeight:'800', color: corPct(v.pct), marginLeft:'0.5rem' }}>{v.pct.toFixed(1)}%</span>}
                                     </span>
                                 </div>
