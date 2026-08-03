@@ -1041,7 +1041,7 @@ function App() {
             </aside>
             <main className="main-content">
                 {currentPage === 'new-exchange' &&
-                    <NewExchangePage storeId={currentStore.id} inventory={inventory} showToast={showToast} />}
+                    <NewExchangePage storeId={currentStore.id} storeName={currentStore.name} inventory={inventory} showToast={showToast} />}
                 {currentPage === 'history' &&
                     <HistoryPage storeId={currentStore.id} exchanges={exchanges} showToast={showToast} />}
                 {currentPage === 'vendas' &&
@@ -1645,7 +1645,7 @@ function AdminGlobalCalendar({ allExchanges }) {
     );
 }
 
-function NewExchangePage({ storeId, inventory, showToast }) {
+function NewExchangePage({ storeId, storeName, inventory, showToast }) {
     const [form, setForm] = useState({ saleNumber: '', customerName: '', customerCPF: '', salesPerson: '', date: new Date().toISOString().split('T')[0], observations: '' });
     const [outgoingItems, setOutgoingItems] = useState([]);
     const [incomingItems, setIncomingItems] = useState([]);
@@ -1653,6 +1653,7 @@ function NewExchangePage({ storeId, inventory, showToast }) {
     const [newOut, setNewOut] = useState({ description: '', value: '' });
     const [newIn, setNewIn] = useState({ description: '', value: '', condition: 'Novo' });
     const [saving, setSaving] = useState(false);
+    const [printTicket, setPrintTicket] = useState(null);
 
     const outTotal = outgoingItems.reduce((s, i) => s + parseFloat(i.value), 0);
     const inTotal = incomingItems.reduce((s, i) => s + parseFloat(i.value), 0);
@@ -1682,21 +1683,40 @@ function NewExchangePage({ storeId, inventory, showToast }) {
         if (outgoingItems.length === 0 || incomingItems.length === 0) { showToast('Adicione itens de saida e entrada', 'error'); return; }
         setSaving(true);
         try {
-            await window.TrocaDB.salvarTroca(storeId, { ...form, outgoingItems, incomingItems, photos, outTotal, inTotal, difference, status: 'pending' });
+            const trocaSalva = { ...form, outgoingItems, incomingItems, photos, outTotal, inTotal, difference, status: 'pending' };
+            const novoId = await window.TrocaDB.salvarTroca(storeId, trocaSalva);
             setForm({ saleNumber: '', customerName: '', customerCPF: '', salesPerson: '', date: new Date().toISOString().split('T')[0], observations: '' });
             setOutgoingItems([]); setIncomingItems([]); setPhotos([]);
             showToast('Troca registrada com sucesso! 🎉');
+            setPrintTicket({ ...trocaSalva, id: novoId, storeName });
         } catch (err) {
             console.error(err);
             showToast('Erro ao salvar. Tente novamente.', 'error');
         } finally { setSaving(false); }
     };
 
+    const handlePrintTicket = () => {
+        setTimeout(() => { window.print(); }, 300);
+    };
+
     const setF = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
 
     return (
         <div>
+            {printTicket && <PrintReceipt exchange={printTicket} storeId={storeId} storeName={storeName} />}
             <div className="header"><h1 className="page-title">➕ Nova Troca</h1><p className="page-subtitle">Registre uma nova troca de produtos</p></div>
+            {printTicket && (
+                <div className="card" style={{ border:'2px solid var(--success)', display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:'1rem' }}>
+                    <div>
+                        <div style={{ fontWeight:'700', color:'var(--success)' }}>✅ Troca #{printTicket.saleNumber} registrada!</div>
+                        <div style={{ fontSize:'0.9rem', color:'var(--text-secondary)' }}>Imprima o Ticket de Troca para o cliente assinar.</div>
+                    </div>
+                    <div style={{ display:'flex', gap:'0.75rem' }}>
+                        <button className="btn btn-success" onClick={handlePrintTicket}>🖨️ Imprimir Ticket de Troca</button>
+                        <button className="btn btn-outline" onClick={() => setPrintTicket(null)}>Fechar</button>
+                    </div>
+                </div>
+            )}
             <form onSubmit={handleSubmit}>
                 <div className="card">
                     <h2 className="card-title">📝 Informações da Venda</h2>
