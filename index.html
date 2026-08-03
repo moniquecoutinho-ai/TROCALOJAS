@@ -530,6 +530,78 @@
         return function() { unsubscribes.forEach(function(u) { u && u(); }); };
     }
 
+    // ===== VALE PRESENTE (GIFT CARD) =====
+    async function salvarValePresente(storeId, vale) {
+        const ref = db.collection("stores").doc(storeId).collection("vale_presente");
+        const docRef = await ref.add({ ...vale, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+        return docRef.id;
+    }
+
+    async function usarValePresente(storeId, valeId, novoSaldo, uso) {
+        const ref = db.collection("stores").doc(storeId).collection("vale_presente").doc(valeId);
+        await ref.update({
+            saldoAtual: novoSaldo,
+            usos: firebase.firestore.FieldValue.arrayUnion(uso),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+    }
+
+    function ouvirValePresente(storeId, callback) {
+        const ref = db.collection("stores").doc(storeId).collection("vale_presente").orderBy("createdAt", "desc");
+        return ref.onSnapshot(function(snap) {
+            callback(snap.docs.map(function(d) { return { ...d.data(), id: d.id }; }));
+        }, function(err) { console.error("Firebase vale presente erro:", err); callback([]); });
+    }
+
+    function ouvirTodosValePresente(lojas, callback) {
+        const unsubscribes = lojas.map(function(loja) {
+            const ref = db.collection("stores").doc(loja.id).collection("vale_presente").orderBy("createdAt", "desc");
+            return ref.onSnapshot(function(snap) {
+                const vales = snap.docs.map(function(d) {
+                    return { ...d.data(), id: d.id, storeId: loja.id, storeName: loja.name };
+                });
+                callback(loja.id, vales);
+            }, function(err) { console.error("Firebase vale presente erro " + loja.id + ":", err); });
+        });
+        return function() { unsubscribes.forEach(function(u) { u && u(); }); };
+    }
+
+    // ===== CASHBACK =====
+    async function salvarCashback(storeId, cb) {
+        const ref = db.collection("stores").doc(storeId).collection("cashback");
+        const docRef = await ref.add({ ...cb, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+        return docRef.id;
+    }
+
+    async function usarCashback(storeId, cbId, novoSaldo, uso) {
+        const ref = db.collection("stores").doc(storeId).collection("cashback").doc(cbId);
+        await ref.update({
+            saldoAtual: novoSaldo,
+            usos: firebase.firestore.FieldValue.arrayUnion(uso),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+    }
+
+    function ouvirCashback(storeId, callback) {
+        const ref = db.collection("stores").doc(storeId).collection("cashback").orderBy("createdAt", "desc");
+        return ref.onSnapshot(function(snap) {
+            callback(snap.docs.map(function(d) { return { ...d.data(), id: d.id }; }));
+        }, function(err) { console.error("Firebase cashback erro:", err); callback([]); });
+    }
+
+    function ouvirTodosCashback(lojas, callback) {
+        const unsubscribes = lojas.map(function(loja) {
+            const ref = db.collection("stores").doc(loja.id).collection("cashback").orderBy("createdAt", "desc");
+            return ref.onSnapshot(function(snap) {
+                const cbs = snap.docs.map(function(d) {
+                    return { ...d.data(), id: d.id, storeId: loja.id, storeName: loja.name };
+                });
+                callback(loja.id, cbs);
+            }, function(err) { console.error("Firebase cashback erro " + loja.id + ":", err); });
+        });
+        return function() { unsubscribes.forEach(function(u) { u && u(); }); };
+    }
+
     // ===== SOLICITACOES DE TRANSFERENCIA ENTRE LOJAS =====
     async function salvarTransferencia(storeId, transf) {
         const ref = db.collection("stores").doc(storeId).collection("transferencias");
@@ -648,6 +720,8 @@
         salvarInsumos, ouvirInsumos, ouvirTodosInsumos,
         salvarMovInsumo, ouvirMovInsumos, ouvirTodasMovInsumos,
         salvarTransferencia, atualizarTransferencia, deletarTransferencia, ouvirTransferencias, ouvirTodasTransferencias,
+        salvarValePresente, usarValePresente, ouvirValePresente, ouvirTodosValePresente,
+        salvarCashback, usarCashback, ouvirCashback, ouvirTodosCashback,
         garantirCatalogo
     };
 
@@ -670,6 +744,28 @@ const STORES = [
     { id: 'ibirapuera',  name: 'Ibirapuera',         password: 'ibirapuera123' },
     { id: 'santana',     name: 'Santana',             password: 'santana123' }
 ];
+const STORE_LEGAL_DATA = {
+    mooca:      { razaoSocial: 'M. ANJOS COMERCIO DE COSMETICOS E PERFUMARIA LTDA', cnpj: '31.290.480/0001-04', endereco: 'Rua Capitão Pacheco e Chaves, 313 — Mooca, São Paulo, SP', telefone: '+55 11 95476-1740' },
+    lorena:     { razaoSocial: 'M. ANJOS COMERCIO DE COSMETICOS E PERFUMARIA LTDA', cnpj: '31.290.480/0002-87', endereco: 'Alameda Lorena, 559 — 01424-002, Jardim Paulista, São Paulo, SP', telefone: '+55 11 98687-2698' },
+    leopoldina: { razaoSocial: 'F2 COMERCIO DE COSMETICOS E PERFUMARIA LTDA', cnpj: '49.574.300/0001-73', endereco: 'Rua Carlos Weber, 678 — 05303-000, Vila Leopoldina, São Paulo, SP', telefone: '+55 11 98194-1516' },
+    perdizes:   { razaoSocial: 'F2 COMERCIO DE COSMETICOS E PERFUMARIA LTDA', cnpj: '49.574.300/0002-54', endereco: 'Rua Itapicuru, 405 — 05006-000, Perdizes, São Paulo, SP', telefone: '+55 11 98114-3939' },
+    ibirapuera: { razaoSocial: 'M. ANJOS COMERCIO DE COSMETICOS E PERFUMARIA LTDA', cnpj: '31.290.480/0007-91', endereco: '04029-200 — Indianópolis, São Paulo, SP', telefone: '+55 11 94947-1011' },
+    santana:    { razaoSocial: 'F2 COMERCIO DE COSMETICOS E PERFUMARIA LTDA', cnpj: '49.574.300/0003-35', endereco: 'Rua Pedro Doll, 48 — 02404-000, Santana, São Paulo, SP', telefone: '+55 11 98194-1516' },
+};
+
+const TRADE_POLICY_RULES = [
+    { condicao: 'Cupom de Troca', regra: 'Obrigatório — indispensável para validar a solicitação.' },
+    { condicao: 'Cadastro do Cliente', regra: 'Obrigatório para emissão de nota fiscal e envio ao SEFAZ.' },
+    { condicao: 'Prazo', regra: 'Até 20 dias a partir da data da compra, conforme cupom.' },
+    { condicao: 'Estado do Produto', regra: 'Embalagem original intacta, sem sinais de uso ou danos.' },
+    { condicao: 'Validade', regra: 'Não realizamos trocas com validade inferior a 3 meses.' },
+];
+const TRADE_POLICY_NAO_ELEGIVEIS = [
+    'Produtos usados ou com embalagem danificada.',
+    "Produtos de promoções com cláusula 'sem troca'.",
+    'Itens com validade vencida ou < 3 meses.',
+];
+
 const ADMIN = { id: 'admin', name: 'Administrador', password: 'admin2025' };
 const FINANCEIRO = { id: 'financeiro', name: 'Manjos', password: 'Manjos@2018' };
 
@@ -822,6 +918,8 @@ function App() {
     const [insumosLoja, setInsumosLoja] = useState(INITIAL_INSUMOS);
     const [movInsumos, setMovInsumos] = useState([]);
     const [transferencias, setTransferencias] = useState([]);
+    const [vales, setVales] = useState([]);
+    const [cashbacks, setCashbacks] = useState([]);
     const [syncStatus, setSyncStatus] = useState('loading');
     const [loading, setLoading] = useState(false);
     const unsubscribeRef = useRef([]);
@@ -854,7 +952,9 @@ function App() {
             const unsubInsumos = window.TrocaDB.ouvirInsumos(currentStore.id, INITIAL_INSUMOS, (i) => setInsumosLoja(i));
             const unsubMovs = window.TrocaDB.ouvirMovInsumos(currentStore.id, (m) => setMovInsumos(m));
             const unsubTransf = window.TrocaDB.ouvirTransferencias(currentStore.id, (t) => setTransferencias(t));
-            unsubscribeRef.current = [unsubExchanges, unsubInventory, unsubMetas, unsubVendas, unsubVendedoras, unsubFechLoja, unsubTesters, unsubInsumos, unsubMovs, unsubTransf];
+            const unsubVales = window.TrocaDB.ouvirValePresente(currentStore.id, (v) => setVales(v));
+            const unsubCashback = window.TrocaDB.ouvirCashback(currentStore.id, (v) => setCashbacks(v));
+            unsubscribeRef.current = [unsubExchanges, unsubInventory, unsubMetas, unsubVendas, unsubVendedoras, unsubFechLoja, unsubTesters, unsubInsumos, unsubMovs, unsubTransf, unsubVales, unsubCashback];
         } catch(e) {
             console.error(e);
             setSyncStatus('offline');
@@ -924,6 +1024,8 @@ function App() {
                             { id: 'insumos',      icon: '🧺', label: 'Insumos' },
                             { id: 'testers',      icon: '🧪', label: 'Testers' },
                             { id: 'transferencias', icon: '🔁', label: 'Transferencias' },
+                            { id: 'valepresente', icon: '🎁', label: 'Vale Presente' },
+                            { id: 'cashback', icon: '💰', label: 'Cashback' },
                             { id: 'reports',      icon: '📊', label: 'Relatorios' },
                         ].map(item => (
                             <li key={item.id} className="nav-item">
@@ -954,6 +1056,10 @@ function App() {
                     <TestersPage storeId={currentStore.id} storeName={currentStore.name} inventory={inventory} testers={testers} vendedoras={vendedoras} showToast={showToast} />}
                 {currentPage === 'transferencias' &&
                     <TransferenciasPage storeId={currentStore.id} storeName={currentStore.name} inventory={inventory} transferencias={transferencias} vendedoras={vendedoras} showToast={showToast} />}
+                {currentPage === 'valepresente' &&
+                    <ValePresentePage storeId={currentStore.id} storeName={currentStore.name} vales={vales} showToast={showToast} />}
+                {currentPage === 'cashback' &&
+                    <CashbackPage storeId={currentStore.id} storeName={currentStore.name} cashbacks={cashbacks} showToast={showToast} />}
                 {currentPage === 'reports' &&
                     <ReportsPage exchanges={exchanges} storeName={currentStore.name} />}
             </main>
@@ -970,6 +1076,8 @@ function AdminView({ onLogout, showToast }) {
     const [storeInsumos, setStoreInsumos] = useState({});
     const [storeMovs, setStoreMovs] = useState({});
     const [storeTransfs, setStoreTransfs] = useState({});
+    const [storeVales, setStoreVales] = useState({});
+    const [storeCashbacks, setStoreCashbacks] = useState({});
     const [metas, setMetas] = useState({});
     const [selectedStore, setSelectedStore] = useState('all');
     const [selectedExchange, setSelectedExchange] = useState(null);
@@ -1004,6 +1112,12 @@ function AdminView({ onLogout, showToast }) {
             }));
             unsubs.push(window.TrocaDB.ouvirTodasTransferencias(STORES, (storeId, transfs) => {
                 setStoreTransfs(prev => ({ ...prev, [storeId]: transfs }));
+            }));
+            unsubs.push(window.TrocaDB.ouvirTodosValePresente(STORES, (storeId, vales) => {
+                setStoreVales(prev => ({ ...prev, [storeId]: vales }));
+            }));
+            unsubs.push(window.TrocaDB.ouvirTodosCashback(STORES, (storeId, cbs) => {
+                setStoreCashbacks(prev => ({ ...prev, [storeId]: cbs }));
             }));
             unsubs.push(window.TrocaDB.ouvirTodosTesters(STORES, (storeId, testers) => {
                 setStoreTesters(prev => ({ ...prev, [storeId]: testers }));
@@ -1100,6 +1214,16 @@ function AdminView({ onLogout, showToast }) {
                             </div>
                         </li>
                         <li className="nav-item">
+                            <div className={`nav-link ${adminPage === 'valepresente' ? 'active' : ''}`} onClick={() => setAdminPage('valepresente')}>
+                                <span className="nav-icon">🎁</span>Vale Presente
+                            </div>
+                        </li>
+                        <li className="nav-item">
+                            <div className={`nav-link ${adminPage === 'cashback' ? 'active' : ''}`} onClick={() => setAdminPage('cashback')}>
+                                <span className="nav-icon">💰</span>Cashback
+                            </div>
+                        </li>
+                        <li className="nav-item">
                             <div className={`nav-link ${adminPage === 'compras' ? 'active' : ''}`} onClick={() => setAdminPage('compras')}>
                                 <span className="nav-icon">🛒</span>Compras
                             </div>
@@ -1142,6 +1266,12 @@ function AdminView({ onLogout, showToast }) {
                 )}
                 {adminPage === 'transferencias' && (
                     <AdminTransferenciasPage storeTransfs={storeTransfs} aprovadorNome="Administrador" showToast={showToast} />
+                )}
+                {adminPage === 'valepresente' && (
+                    <AdminValePresentePage storeVales={storeVales} showToast={showToast} />
+                )}
+                {adminPage === 'cashback' && (
+                    <AdminCashbackPage storeCashbacks={storeCashbacks} showToast={showToast} />
                 )}
                 {adminPage === 'compras' && (
                     <AdminComprasPage storeInsumos={storeInsumos} storeMovs={storeMovs} showToast={showToast} />
@@ -1257,6 +1387,8 @@ function FinanceiroView({ onLogout, showToast }) {
     const [storeInsumos, setStoreInsumos] = useState({});
     const [storeMovs, setStoreMovs] = useState({});
     const [storeTransfs, setStoreTransfs] = useState({});
+    const [storeVales, setStoreVales] = useState({});
+    const [storeCashbacks, setStoreCashbacks] = useState({});
     const [finPage, setFinPage] = useState('fechamentos');
     const [loading, setLoading] = useState(true);
     const unsubRef = useRef(null);
@@ -1282,6 +1414,12 @@ function FinanceiroView({ onLogout, showToast }) {
             }));
             unsubs.push(window.TrocaDB.ouvirTodasTransferencias(STORES, (storeId, transfs) => {
                 setStoreTransfs(prev => ({ ...prev, [storeId]: transfs }));
+            }));
+            unsubs.push(window.TrocaDB.ouvirTodosValePresente(STORES, (storeId, vales) => {
+                setStoreVales(prev => ({ ...prev, [storeId]: vales }));
+            }));
+            unsubs.push(window.TrocaDB.ouvirTodosCashback(STORES, (storeId, cbs) => {
+                setStoreCashbacks(prev => ({ ...prev, [storeId]: cbs }));
             }));
         } catch(e) { console.error(e); setLoading(false); }
         unsubRef.current = () => unsubs.forEach(u => u && u());
@@ -1329,6 +1467,16 @@ function FinanceiroView({ onLogout, showToast }) {
                             </div>
                         </li>
                         <li className="nav-item">
+                            <div className={`nav-link ${finPage === 'valepresente' ? 'active' : ''}`} onClick={() => setFinPage('valepresente')}>
+                                <span className="nav-icon">🎁</span>Vale Presente
+                            </div>
+                        </li>
+                        <li className="nav-item">
+                            <div className={`nav-link ${finPage === 'cashback' ? 'active' : ''}`} onClick={() => setFinPage('cashback')}>
+                                <span className="nav-icon">💰</span>Cashback
+                            </div>
+                        </li>
+                        <li className="nav-item">
                             <div className={`nav-link ${finPage === 'compras' ? 'active' : ''}`} onClick={() => setFinPage('compras')}>
                                 <span className="nav-icon">🛒</span>Compras
                             </div>
@@ -1342,6 +1490,8 @@ function FinanceiroView({ onLogout, showToast }) {
                 {finPage === 'testers' && <AdminTestersPage storeTesters={storeTesters} aprovadorNome="Bruno (Financeiro)" showToast={showToast} />}
                 {finPage === 'descontos' && <AdminDescontosPage storeVendas={storeVendas} aprovadorNome="Bruno (Financeiro)" showToast={showToast} />}
                 {finPage === 'transferencias' && <AdminTransferenciasPage storeTransfs={storeTransfs} aprovadorNome="Bruno (Financeiro)" showToast={showToast} />}
+                {finPage === 'valepresente' && <AdminValePresentePage storeVales={storeVales} showToast={showToast} />}
+                {finPage === 'cashback' && <AdminCashbackPage storeCashbacks={storeCashbacks} showToast={showToast} />}
                 {finPage === 'compras' && <AdminComprasPage storeInsumos={storeInsumos} storeMovs={storeMovs} showToast={showToast} />}
             </main>
         </div>
@@ -1997,7 +2147,7 @@ function ExchangeModal({ exchange, storeId, onClose, onStatusChange, readOnly, o
 
     return (
         <>
-        {showReceipt && <PrintReceipt exchange={exchange} storeName={exchange.storeName} />}
+        {showReceipt && <PrintReceipt exchange={exchange} storeId={storeId} storeName={exchange.storeName} />}
         <div className="modal-overlay" onClick={onClose}>
             <div className="modal-content" onClick={e => e.stopPropagation()}>
                 <div className="modal-header">
@@ -2070,18 +2220,25 @@ function ExchangeModal({ exchange, storeId, onClose, onStatusChange, readOnly, o
     );
 }
 
-function PrintReceipt({ exchange, storeName }) {
+function PrintReceipt({ exchange, storeId, storeName }) {
     const diff = exchange.difference || 0;
+    const legal = STORE_LEGAL_DATA[storeId] || STORE_LEGAL_DATA[exchange.storeId] || null;
     return (
         <div id="print-receipt" style={{ position:'fixed', top:0, left:0, width:'100%', zIndex:99999, background:'white', display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'2rem', minHeight:'100vh' }}>
             <div className="receipt-wrap" style={{ width:'380px' }}>
                 <div className="receipt-logo">TROCAFACIL</div>
-                <div className="receipt-sub">Comprovante de Troca</div>
+                <div className="receipt-sub">Ticket de Troca — Cupom Obrigatório</div>
+                {legal && (
+                    <div style={{ fontSize:'0.72rem', textAlign:'center', color:'#444', marginTop:'0.4rem', lineHeight:1.4 }}>
+                        {legal.razaoSocial}<br/>CNPJ {legal.cnpj}<br/>{legal.endereco}<br/>{legal.telefone}
+                    </div>
+                )}
                 <hr className="receipt-divider" />
                 <div className="receipt-row"><span>Filial:</span><strong>{storeName || exchange.storeName || '-'}</strong></div>
-                <div className="receipt-row"><span>No Venda:</span><strong>{exchange.saleNumber}</strong></div>
-                <div className="receipt-row"><span>Data:</span><strong>{exchange.date ? new Date(exchange.date).toLocaleDateString('pt-BR') : '-'}</strong></div>
+                <div className="receipt-row"><span>Cupom de Troca No:</span><strong>{exchange.saleNumber}</strong></div>
+                <div className="receipt-row"><span>Data da Troca:</span><strong>{exchange.date ? new Date(exchange.date).toLocaleDateString('pt-BR') : '-'}</strong></div>
                 <div className="receipt-row"><span>Cliente:</span><strong>{exchange.customerName}</strong></div>
+                {exchange.customerCPF && <div className="receipt-row"><span>CPF:</span><strong>{exchange.customerCPF}</strong></div>}
                 {exchange.salesPerson && <div className="receipt-row"><span>Vendedor:</span><strong>{exchange.salesPerson}</strong></div>}
                 <hr className="receipt-divider" />
                 <div className="receipt-section-title">PRODUTOS DE SAIDA</div>
@@ -2101,6 +2258,13 @@ function PrintReceipt({ exchange, storeName }) {
                     <div className="receipt-section-title">ASSINATURA DO CLIENTE</div>
                     <div className="receipt-sig-line">Assinatura</div>
                     <div className="receipt-sig-line" style={{ marginTop:'2rem' }}>Nome legivel</div>
+                </div>
+                <hr className="receipt-divider" />
+                <div className="receipt-section-title">POLÍTICA DE TROCA</div>
+                <div style={{ fontSize:'0.68rem', color:'#444', lineHeight:1.5 }}>
+                    {TRADE_POLICY_RULES.map(r => <div key={r.condicao}><strong>{r.condicao}:</strong> {r.regra}</div>)}
+                    <div style={{ marginTop:'0.4rem' }}><strong>Não elegíveis para troca:</strong></div>
+                    {TRADE_POLICY_NAO_ELEGIVEIS.map((n, i) => <div key={i}>• {n}</div>)}
                 </div>
                 <div className="receipt-footer">Gerado em {new Date().toLocaleString('pt-BR')} - TrocaFacil</div>
             </div>
@@ -3571,6 +3735,577 @@ function AdminTransferenciasPage({ storeTransfs, aprovadorNome, showToast }) {
 }
 
 // ===================== ABERTURA DE TESTERS =====================
+// ===================== VALE PRESENTE (GIFT CARD) =====================
+function gerarCodigoVale() {
+    const rnd = Math.random().toString(36).substring(2, 8).toUpperCase();
+    return 'VP-' + rnd;
+}
+
+function PrintValePresente({ vale, storeName, storeId }) {
+    const legal = STORE_LEGAL_DATA[storeId] || null;
+    return (
+        <div id="print-receipt" style={{ position:'fixed', top:0, left:0, width:'100%', zIndex:99999, background:'white', display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'2rem', minHeight:'100vh' }}>
+            <div className="receipt-wrap" style={{ width:'380px' }}>
+                <div className="receipt-logo">🎁 VALE PRESENTE</div>
+                <div className="receipt-sub">M.Anjos / Avatim</div>
+                {legal && (
+                    <div style={{ fontSize:'0.72rem', textAlign:'center', color:'#444', marginTop:'0.4rem', lineHeight:1.4 }}>
+                        {legal.razaoSocial}<br/>CNPJ {legal.cnpj}<br/>{legal.endereco}<br/>{legal.telefone}
+                    </div>
+                )}
+                <hr className="receipt-divider" />
+                <div className="receipt-row"><span>Filial:</span><strong>{storeName}</strong></div>
+                <div className="receipt-row"><span>Código:</span><strong>{vale.codigo}</strong></div>
+                <div className="receipt-row"><span>Cliente:</span><strong>{vale.clienteNome}</strong></div>
+                {vale.clienteContato && <div className="receipt-row"><span>Contato:</span><strong>{vale.clienteContato}</strong></div>}
+                <div className="receipt-row"><span>Emitido em:</span><strong>{vale.dataEmissao ? new Date(vale.dataEmissao).toLocaleDateString('pt-BR') : '-'}</strong></div>
+                <div className="receipt-row"><span>Válido até:</span><strong>{vale.dataValidade ? new Date(vale.dataValidade).toLocaleDateString('pt-BR') : '-'}</strong></div>
+                <hr className="receipt-divider" />
+                <div className="receipt-total"><span>VALOR DO VALE</span><span>{fmt(num(vale.valorOriginal))}</span></div>
+                <div className="receipt-footer" style={{ marginTop:'1rem' }}>Apresente este código em qualquer loja da rede para utilizar o saldo. Gerado em {new Date().toLocaleString('pt-BR')}.</div>
+            </div>
+        </div>
+    );
+}
+
+function ValePresentePage({ storeId, storeName, vales, showToast }) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const [form, setForm] = useState({ clienteNome:'', clienteContato:'', valor:'', validadeDias:'90' });
+    const [saving, setSaving] = useState(false);
+    const [busca, setBusca] = useState('');
+    const [usoModal, setUsoModal] = useState(null); // vale selecionado p/ usar
+    const [usoValor, setUsoValor] = useState('');
+    const [usoSaving, setUsoSaving] = useState(false);
+    const [printVale, setPrintVale] = useState(null);
+    const [statusFiltro, setStatusFiltro] = useState('all');
+
+    const dataValidade = (dias) => {
+        const d = new Date();
+        d.setDate(d.getDate() + (parseInt(dias) || 90));
+        return d.toISOString().split('T')[0];
+    };
+
+    const emitir = async () => {
+        if (!form.clienteNome) { showToast('Informe o nome do cliente', 'error'); return; }
+        if (!num(form.valor) || num(form.valor) <= 0) { showToast('Informe o valor do vale', 'error'); return; }
+        setSaving(true);
+        try {
+            const vale = {
+                codigo: gerarCodigoVale(), clienteNome: form.clienteNome.toUpperCase(), clienteContato: form.clienteContato,
+                valorOriginal: num(form.valor), saldoAtual: num(form.valor),
+                dataEmissao: todayStr, dataValidade: dataValidade(form.validadeDias), usos: []
+            };
+            await window.TrocaDB.salvarValePresente(storeId, vale);
+            setForm({ clienteNome:'', clienteContato:'', valor:'', validadeDias:'90' });
+            showToast('Vale presente emitido! 🎁');
+        } catch(e) { console.error(e); showToast('Erro ao emitir vale', 'error'); }
+        finally { setSaving(false); }
+    };
+
+    const statusVale = (v) => {
+        if (num(v.saldoAtual) <= 0) return 'usado';
+        if (v.dataValidade && v.dataValidade < todayStr) return 'expirado';
+        return 'ativo';
+    };
+
+    const abrirUso = (v) => { setUsoModal(v); setUsoValor(''); };
+    const confirmarUso = async () => {
+        const valor = num(usoValor);
+        if (!valor || valor <= 0) { showToast('Informe o valor a usar', 'error'); return; }
+        if (valor > num(usoModal.saldoAtual)) { showToast('Valor maior que o saldo disponível', 'error'); return; }
+        setUsoSaving(true);
+        try {
+            const novoSaldo = num(usoModal.saldoAtual) - valor;
+            await window.TrocaDB.usarValePresente(storeId, usoModal.id, novoSaldo, {
+                data: todayStr, valorUsado: valor, saldoAntes: num(usoModal.saldoAtual), saldoDepois: novoSaldo
+            });
+            showToast('Vale utilizado! Saldo restante: ' + fmt(novoSaldo));
+            setUsoModal(null);
+        } catch(e) { console.error(e); showToast('Erro ao usar vale', 'error'); }
+        finally { setUsoSaving(false); }
+    };
+
+    const filtrados = useMemo(() => {
+        let r = vales || [];
+        if (statusFiltro !== 'all') r = r.filter(v => statusVale(v) === statusFiltro);
+        const s = busca.trim().toLowerCase();
+        if (s) r = r.filter(v => (v.clienteNome || '').toLowerCase().includes(s) || (v.codigo || '').toLowerCase().includes(s));
+        return r;
+    }, [vales, busca, statusFiltro]);
+
+    const handlePrint = (v) => { setPrintVale(v); setTimeout(() => { window.print(); setTimeout(() => setPrintVale(null), 500); }, 300); };
+
+    const handleExport = () => {
+        if (!(vales || []).length) { alert('Nao ha vales emitidos'); return; }
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet((vales || []).map(v => ({
+            'Código': v.codigo, 'Cliente': v.clienteNome, 'Contato': v.clienteContato || '',
+            'Valor Original': num(v.valorOriginal), 'Saldo Atual': num(v.saldoAtual),
+            'Emitido em': v.dataEmissao || '', 'Válido até': v.dataValidade || '',
+            'Status': statusVale(v) === 'ativo' ? 'Ativo' : statusVale(v) === 'usado' ? 'Usado' : 'Expirado'
+        }))), 'Vale Presente');
+        XLSX.writeFile(wb, 'vale-presente-' + storeName.replace(/\s/g, '-') + '.xlsx');
+    };
+
+    const statusBadge = (v) => {
+        const s = statusVale(v);
+        return s === 'ativo' ? <span className="badge badge-confirmed">🟢 Ativo</span> : s === 'usado' ? <span className="badge badge-pending">⚪ Usado</span> : <span className="badge badge-danger">🔴 Expirado</span>;
+    };
+
+    return (
+        <div>
+            {printVale && <PrintValePresente vale={printVale} storeName={storeName} storeId={storeId} />}
+            <div className="header">
+                <h1 className="page-title">🎁 Vale Presente</h1>
+                <p className="page-subtitle">Emita, consulte e utilize vales presente da loja</p>
+            </div>
+            <div className="card">
+                <h2 className="card-title">➕ Emitir Novo Vale</h2>
+                <div className="form-row">
+                    <div className="form-group"><label className="form-label">Nome do Cliente *</label><input className="form-input" value={form.clienteNome} onChange={e => setForm({...form, clienteNome: e.target.value})} placeholder="Nome completo" /></div>
+                    <div className="form-group"><label className="form-label">Contato</label><input className="form-input" value={form.clienteContato} onChange={e => setForm({...form, clienteContato: e.target.value})} placeholder="Telefone" /></div>
+                    <div className="form-group">
+                        <label className="form-label">Valor do Vale (R$) *</label>
+                        <input type="text" inputMode="decimal" className="form-input" value={form.valor} onChange={e => setForm({...form, valor: e.target.value})} placeholder="0,00" />
+                    </div>
+                    <div className="form-group"><label className="form-label">Validade (dias)</label><input type="number" className="form-input" value={form.validadeDias} onChange={e => setForm({...form, validadeDias: e.target.value})} placeholder="90" /></div>
+                    <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}><button className="btn btn-primary" onClick={emitir} disabled={saving} style={{ width:'100%' }}>{saving ? '⏳...' : '🎁 Emitir'}</button></div>
+                </div>
+            </div>
+            <div className="card">
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem', flexWrap:'wrap', gap:'1rem' }}>
+                    <h2 className="card-title" style={{ margin:0 }}>📋 Vales Emitidos</h2>
+                    <div style={{ display:'flex', gap:'0.75rem', alignItems:'center' }}>
+                        <select className="form-select" style={{ width:'auto' }} value={statusFiltro} onChange={e => setStatusFiltro(e.target.value)}>
+                            <option value="all">Todos</option><option value="ativo">🟢 Ativos</option><option value="usado">⚪ Usados</option><option value="expirado">🔴 Expirados</option>
+                        </select>
+                        <button className="btn btn-success btn-small" onClick={handleExport}>📥 Excel</button>
+                    </div>
+                </div>
+                <div className="form-group" style={{ marginBottom:'1.5rem' }}>
+                    <input className="form-input" value={busca} onChange={e => setBusca(e.target.value)} placeholder="🔍 Buscar por cliente ou código..." />
+                </div>
+                {filtrados.length > 0 ? (
+                    <div className="table-container">
+                        <table className="table">
+                            <thead><tr><th>Código</th><th>Cliente</th><th>Contato</th><th>Valor Original</th><th>Saldo</th><th>Válido até</th><th>Status</th><th>Ações</th></tr></thead>
+                            <tbody>
+                                {filtrados.map(v => (
+                                    <tr key={v.id}>
+                                        <td style={{ fontWeight:'700' }}>{v.codigo}</td>
+                                        <td>{v.clienteNome}</td>
+                                        <td style={{ fontSize:'0.85rem', color:'var(--text-secondary)' }}>{v.clienteContato || '-'}</td>
+                                        <td>{fmt(num(v.valorOriginal))}</td>
+                                        <td style={{ fontWeight:'700', color: num(v.saldoAtual) > 0 ? 'var(--success)' : 'var(--text-secondary)' }}>{fmt(num(v.saldoAtual))}</td>
+                                        <td style={{ fontSize:'0.85rem' }}>{v.dataValidade ? new Date(v.dataValidade).toLocaleDateString('pt-BR') : '-'}</td>
+                                        <td>{statusBadge(v)}</td>
+                                        <td>
+                                            <div style={{ display:'flex', gap:'0.5rem' }}>
+                                                {statusVale(v) === 'ativo' && <button className="btn btn-primary btn-small" onClick={() => abrirUso(v)}>💳 Usar</button>}
+                                                <button className="btn btn-secondary btn-small" onClick={() => handlePrint(v)}>🖨️</button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <div className="empty-state"><div className="empty-state-icon">🎁</div><p>Nenhum vale encontrado</p></div>
+                )}
+            </div>
+            {usoModal && (
+                <div className="modal-overlay" onClick={() => setUsoModal(null)}>
+                    <div className="modal-content" style={{ maxWidth:'440px' }} onClick={e => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h2 className="modal-title">💳 Usar Vale — {usoModal.codigo}</h2>
+                            <button className="modal-close" onClick={() => setUsoModal(null)}>×</button>
+                        </div>
+                        <div className="modal-body">
+                            <div style={{ marginBottom:'1rem' }}>
+                                <div style={{ fontWeight:'700' }}>{usoModal.clienteNome}</div>
+                                <div style={{ fontSize:'0.9rem', color:'var(--text-secondary)' }}>Saldo disponível: <strong style={{ color:'var(--success)' }}>{fmt(num(usoModal.saldoAtual))}</strong></div>
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">Valor a Usar Agora (R$) *</label>
+                                <input type="text" inputMode="decimal" className="form-input" value={usoValor} onChange={e => setUsoValor(e.target.value)} autoFocus />
+                            </div>
+                            {num(usoValor) > 0 && (
+                                <div style={{ padding:'0.75rem 1rem', background:'var(--bg-dark)', borderRadius:'10px', marginBottom:'1rem', fontSize:'0.95rem' }}>
+                                    Saldo restante: <strong style={{ color:'var(--warning)' }}>{fmt(Math.max(num(usoModal.saldoAtual) - num(usoValor), 0))}</strong>
+                                </div>
+                            )}
+                            <button className="btn btn-primary" style={{ width:'100%' }} onClick={confirmarUso} disabled={usoSaving}>{usoSaving ? '⏳...' : '✅ Confirmar Uso'}</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function AdminValePresentePage({ storeVales, showToast }) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const [lojaFiltro, setLojaFiltro] = useState('all');
+    const [busca, setBusca] = useState('');
+
+    const statusVale = (v) => {
+        if (num(v.saldoAtual) <= 0) return 'usado';
+        if (v.dataValidade && v.dataValidade < todayStr) return 'expirado';
+        return 'ativo';
+    };
+
+    const all = useMemo(() => Object.values(storeVales).flat().filter(v => lojaFiltro === 'all' || v.storeId === lojaFiltro), [storeVales, lojaFiltro]);
+    const filtrados = useMemo(() => {
+        const s = busca.trim().toLowerCase();
+        if (!s) return all;
+        return all.filter(v => (v.clienteNome || '').toLowerCase().includes(s) || (v.codigo || '').toLowerCase().includes(s));
+    }, [all, busca]);
+
+    const emAberto = all.filter(v => statusVale(v) === 'ativo').reduce((s, v) => s + num(v.saldoAtual), 0);
+    const totalEmitido = all.reduce((s, v) => s + num(v.valorOriginal), 0);
+    const qtdAtivos = all.filter(v => statusVale(v) === 'ativo').length;
+
+    const handleExport = () => {
+        if (!filtrados.length) { alert('Nao ha vales'); return; }
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filtrados.map(v => ({
+            'Loja': v.storeName, 'Código': v.codigo, 'Cliente': v.clienteNome, 'Contato': v.clienteContato || '',
+            'Valor Original': num(v.valorOriginal), 'Saldo Atual': num(v.saldoAtual),
+            'Emitido em': v.dataEmissao || '', 'Válido até': v.dataValidade || '',
+            'Status': statusVale(v) === 'ativo' ? 'Ativo' : statusVale(v) === 'usado' ? 'Usado' : 'Expirado'
+        }))), 'Vale Presente');
+        XLSX.writeFile(wb, 'vale-presente-consolidado.xlsx');
+    };
+
+    return (
+        <div>
+            <div className="header">
+                <h1 className="page-title">🎁 Vale Presente — Consolidado</h1>
+                <p className="page-subtitle">Visão geral de todas as lojas em tempo real</p>
+            </div>
+            <div className="stats-grid">
+                <div className="stat-card"><span className="stat-icon">🎁</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totalEmitido)}</span><span className="stat-label">Total Já Emitido</span></div>
+                <div className="stat-card"><span className="stat-icon">💰</span><span className="stat-value" style={{ fontSize:'1.6rem', color:'var(--warning)' }}>{fmt(emAberto)}</span><span className="stat-label">Saldo em Aberto (passivo)</span></div>
+                <div className="stat-card"><span className="stat-icon">🟢</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{qtdAtivos}</span><span className="stat-label">Vales Ativos</span></div>
+            </div>
+            <div className="card">
+                <div className="form-row">
+                    <div className="form-group">
+                        <label className="form-label">Loja</label>
+                        <select className="form-select" value={lojaFiltro} onChange={e => setLojaFiltro(e.target.value)}>
+                            <option value="all">🏪 Todas as Lojas</option>
+                            {STORES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                    </div>
+                    <div className="form-group"><label className="form-label">Buscar</label><input className="form-input" value={busca} onChange={e => setBusca(e.target.value)} placeholder="Cliente ou código" /></div>
+                    <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}><button className="btn btn-success" onClick={handleExport} style={{ width:'100%' }}>📥 Exportar Excel</button></div>
+                </div>
+            </div>
+            <div className="card">
+                {filtrados.length > 0 ? (
+                    <div className="table-container">
+                        <table className="table">
+                            <thead><tr><th>Loja</th><th>Código</th><th>Cliente</th><th>Valor Original</th><th>Saldo</th><th>Válido até</th><th>Status</th></tr></thead>
+                            <tbody>
+                                {filtrados.map(v => (
+                                    <tr key={v.storeId + '-' + v.id}>
+                                        <td style={{ fontSize:'0.85rem' }}>{v.storeName}</td>
+                                        <td style={{ fontWeight:'700' }}>{v.codigo}</td>
+                                        <td>{v.clienteNome}</td>
+                                        <td>{fmt(num(v.valorOriginal))}</td>
+                                        <td style={{ fontWeight:'700', color: num(v.saldoAtual) > 0 ? 'var(--success)' : 'var(--text-secondary)' }}>{fmt(num(v.saldoAtual))}</td>
+                                        <td style={{ fontSize:'0.85rem' }}>{v.dataValidade ? new Date(v.dataValidade).toLocaleDateString('pt-BR') : '-'}</td>
+                                        <td>{statusVale(v) === 'ativo' ? <span className="badge badge-confirmed">🟢 Ativo</span> : statusVale(v) === 'usado' ? <span className="badge badge-pending">⚪ Usado</span> : <span className="badge badge-danger">🔴 Expirado</span>}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <div className="empty-state"><div className="empty-state-icon">🎁</div><p>Nenhum vale encontrado</p></div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+// ===================== CASHBACK =====================
+function CashbackPage({ storeId, storeName, cashbacks, showToast }) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const [form, setForm] = useState({ clienteNome:'', clienteContato:'', valorCompra:'', tipoCalculo:'percentual', percentual:'', valorFixo:'', validadeDias:'30' });
+    const [saving, setSaving] = useState(false);
+    const [busca, setBusca] = useState('');
+    const [usoModal, setUsoModal] = useState(null);
+    const [usoValor, setUsoValor] = useState('');
+    const [usoSaving, setUsoSaving] = useState(false);
+
+    const valorCashbackCalc = form.tipoCalculo === 'percentual'
+        ? num(form.valorCompra) * (num(form.percentual) / 100)
+        : num(form.valorFixo);
+    const percentualEquivalente = num(form.valorCompra) > 0 ? (valorCashbackCalc / num(form.valorCompra)) * 100 : 0;
+
+    const dataValidade = (dias) => {
+        const d = new Date();
+        d.setDate(d.getDate() + (parseInt(dias) || 30));
+        return d.toISOString().split('T')[0];
+    };
+
+    const lancar = async () => {
+        if (!form.clienteNome) { showToast('Informe o nome do cliente', 'error'); return; }
+        if (!valorCashbackCalc || valorCashbackCalc <= 0) { showToast('Informe o valor da compra e o percentual (ou valor) do cashback', 'error'); return; }
+        setSaving(true);
+        try {
+            await window.TrocaDB.salvarCashback(storeId, {
+                clienteNome: form.clienteNome.toUpperCase(), clienteContato: form.clienteContato,
+                valorCompra: num(form.valorCompra), tipoCalculo: form.tipoCalculo,
+                percentual: form.tipoCalculo === 'percentual' ? num(form.percentual) : percentualEquivalente,
+                valorCashback: valorCashbackCalc, saldoAtual: valorCashbackCalc,
+                dataLancamento: todayStr, dataValidade: dataValidade(form.validadeDias), usos: []
+            });
+            setForm({ clienteNome:'', clienteContato:'', valorCompra:'', tipoCalculo: form.tipoCalculo, percentual:'', valorFixo:'', validadeDias: form.validadeDias });
+            showToast('Cashback lançado! 💰 Valor: ' + fmt(valorCashbackCalc));
+        } catch(e) { console.error(e); showToast('Erro ao lançar cashback', 'error'); }
+        finally { setSaving(false); }
+    };
+
+    const statusCB = (v) => {
+        if (num(v.saldoAtual) <= 0) return 'usado';
+        if (v.dataValidade && v.dataValidade < todayStr) return 'expirado';
+        return 'ativo';
+    };
+
+    // Agrupamento por cliente (nome+contato) para saldo total
+    const porCliente = useMemo(() => {
+        const map = {};
+        (cashbacks || []).forEach(v => {
+            const k = (v.clienteNome || '') + '|' + (v.clienteContato || '');
+            if (!map[k]) map[k] = { nome: v.clienteNome, contato: v.clienteContato, saldo: 0, entradas: [] };
+            if (statusCB(v) === 'ativo') map[k].saldo += num(v.saldoAtual);
+            map[k].entradas.push(v);
+        });
+        return Object.values(map).sort((a, b) => b.saldo - a.saldo);
+    }, [cashbacks]);
+
+    const abrirUso = (cliente) => { setUsoModal(cliente); setUsoValor(''); };
+    const confirmarUso = async () => {
+        const valor = num(usoValor);
+        if (!valor || valor <= 0) { showToast('Informe o valor a usar', 'error'); return; }
+        if (valor > usoModal.saldo) { showToast('Valor maior que o saldo disponível do cliente', 'error'); return; }
+        setUsoSaving(true);
+        try {
+            let restante = valor;
+            const ativos = usoModal.entradas.filter(v => statusCB(v) === 'ativo').sort((a, b) => (a.dataLancamento > b.dataLancamento ? 1 : -1));
+            for (const v of ativos) {
+                if (restante <= 0) break;
+                const usar = Math.min(restante, num(v.saldoAtual));
+                if (usar <= 0) continue;
+                const novoSaldo = num(v.saldoAtual) - usar;
+                await window.TrocaDB.usarCashback(storeId, v.id, novoSaldo, { data: todayStr, valorUsado: usar, saldoAntes: num(v.saldoAtual), saldoDepois: novoSaldo });
+                restante -= usar;
+            }
+            showToast('Cashback utilizado! ✅');
+            setUsoModal(null);
+        } catch(e) { console.error(e); showToast('Erro ao usar cashback', 'error'); }
+        finally { setUsoSaving(false); }
+    };
+
+    const filtrados = useMemo(() => {
+        const s = busca.trim().toLowerCase();
+        if (!s) return porCliente;
+        return porCliente.filter(c => (c.nome || '').toLowerCase().includes(s) || (c.contato || '').toLowerCase().includes(s));
+    }, [porCliente, busca]);
+
+    const handleExport = () => {
+        if (!(cashbacks || []).length) { alert('Nao ha cashback lancado'); return; }
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(porCliente.map(c => ({
+            'Cliente': c.nome, 'Contato': c.contato || '', 'Saldo Disponível': c.saldo, 'Nº Lançamentos': c.entradas.length
+        }))), 'Saldo por Cliente');
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet((cashbacks || []).map(v => ({
+            'Cliente': v.clienteNome, 'Contato': v.clienteContato || '', 'Valor da Compra': num(v.valorCompra),
+            'Percentual (%)': num(v.percentual).toFixed(2), 'Valor Cashback': num(v.valorCashback), 'Saldo Atual': num(v.saldoAtual),
+            'Lançado em': v.dataLancamento || '', 'Válido até': v.dataValidade || '',
+            'Status': statusCB(v) === 'ativo' ? 'Ativo' : statusCB(v) === 'usado' ? 'Usado' : 'Expirado'
+        }))), 'Lançamentos');
+        XLSX.writeFile(wb, 'cashback-' + storeName.replace(/\s/g, '-') + '.xlsx');
+    };
+
+    return (
+        <div>
+            <div className="header">
+                <h1 className="page-title">💰 Cashback</h1>
+                <p className="page-subtitle">Lance cashback por compra e controle o saldo de cada cliente</p>
+            </div>
+            <div className="card">
+                <h2 className="card-title">➕ Lançar Cashback</h2>
+                <div className="form-row">
+                    <div className="form-group"><label className="form-label">Nome do Cliente *</label><input className="form-input" value={form.clienteNome} onChange={e => setForm({...form, clienteNome: e.target.value})} placeholder="Nome completo" /></div>
+                    <div className="form-group"><label className="form-label">Contato</label><input className="form-input" value={form.clienteContato} onChange={e => setForm({...form, clienteContato: e.target.value})} placeholder="Telefone" /></div>
+                    <div className="form-group"><label className="form-label">Valor da Compra (R$) *</label><input type="text" inputMode="decimal" className="form-input" value={form.valorCompra} onChange={e => setForm({...form, valorCompra: e.target.value})} placeholder="0,00" /></div>
+                </div>
+                <div className="form-row">
+                    <div className="form-group"><label className="form-label">Calcular por</label>
+                        <select className="form-select" value={form.tipoCalculo} onChange={e => setForm({...form, tipoCalculo: e.target.value})}>
+                            <option value="percentual">Percentual (%)</option>
+                            <option value="fixo">Valor Fixo (R$)</option>
+                        </select>
+                    </div>
+                    {form.tipoCalculo === 'percentual' ? (
+                        <div className="form-group"><label className="form-label">Percentual de Cashback (%) *</label><input type="text" inputMode="decimal" className="form-input" value={form.percentual} onChange={e => setForm({...form, percentual: e.target.value})} placeholder="Ex: 5" /></div>
+                    ) : (
+                        <div className="form-group"><label className="form-label">Valor do Cashback (R$) *</label><input type="text" inputMode="decimal" className="form-input" value={form.valorFixo} onChange={e => setForm({...form, valorFixo: e.target.value})} placeholder="0,00" /></div>
+                    )}
+                    <div className="form-group"><label className="form-label">Validade (dias)</label><input type="number" className="form-input" value={form.validadeDias} onChange={e => setForm({...form, validadeDias: e.target.value})} placeholder="30" /></div>
+                </div>
+                {num(form.valorCompra) > 0 && (
+                    <div style={{ padding:'0.9rem 1.1rem', background:'var(--bg-dark)', borderRadius:'10px', marginBottom:'1rem', display:'flex', justifyContent:'space-between', flexWrap:'wrap', gap:'0.5rem' }}>
+                        <span>🧮 <strong>{form.tipoCalculo === 'percentual' ? (num(form.percentual) || 0) + '%' : percentualEquivalente.toFixed(1) + '% equivalente'}</strong> de {fmt(num(form.valorCompra))}</span>
+                        <span style={{ fontWeight:'800', color:'var(--success)', fontSize:'1.1rem' }}>= {fmt(valorCashbackCalc)}</span>
+                    </div>
+                )}
+                <button className="btn btn-primary" style={{ width:'100%' }} onClick={lancar} disabled={saving}>{saving ? '⏳...' : '💰 Lançar Cashback'}</button>
+            </div>
+            <div className="card">
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem', flexWrap:'wrap', gap:'1rem' }}>
+                    <h2 className="card-title" style={{ margin:0 }}>👥 Saldo por Cliente</h2>
+                    <button className="btn btn-success btn-small" onClick={handleExport}>📥 Excel</button>
+                </div>
+                <div className="form-group" style={{ marginBottom:'1.5rem' }}>
+                    <input className="form-input" value={busca} onChange={e => setBusca(e.target.value)} placeholder="🔍 Buscar cliente..." />
+                </div>
+                {filtrados.length > 0 ? (
+                    <div className="table-container">
+                        <table className="table">
+                            <thead><tr><th>Cliente</th><th>Contato</th><th>Saldo Disponível</th><th>Lançamentos</th><th>Ações</th></tr></thead>
+                            <tbody>
+                                {filtrados.map((c, i) => (
+                                    <tr key={i}>
+                                        <td style={{ fontWeight:'600' }}>{c.nome}</td>
+                                        <td style={{ fontSize:'0.85rem', color:'var(--text-secondary)' }}>{c.contato || '-'}</td>
+                                        <td style={{ fontWeight:'700', color: c.saldo > 0 ? 'var(--success)' : 'var(--text-secondary)' }}>{fmt(c.saldo)}</td>
+                                        <td>{c.entradas.length}</td>
+                                        <td>{c.saldo > 0 && <button className="btn btn-primary btn-small" onClick={() => abrirUso(c)}>💳 Usar</button>}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <div className="empty-state"><div className="empty-state-icon">💰</div><p>Nenhum cashback lançado ainda</p></div>
+                )}
+            </div>
+            {usoModal && (
+                <div className="modal-overlay" onClick={() => setUsoModal(null)}>
+                    <div className="modal-content" style={{ maxWidth:'440px' }} onClick={e => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h2 className="modal-title">💳 Usar Cashback</h2>
+                            <button className="modal-close" onClick={() => setUsoModal(null)}>×</button>
+                        </div>
+                        <div className="modal-body">
+                            <div style={{ marginBottom:'1rem' }}>
+                                <div style={{ fontWeight:'700' }}>{usoModal.nome}</div>
+                                <div style={{ fontSize:'0.9rem', color:'var(--text-secondary)' }}>Saldo disponível: <strong style={{ color:'var(--success)' }}>{fmt(usoModal.saldo)}</strong></div>
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">Valor a Usar Agora (R$) *</label>
+                                <input type="text" inputMode="decimal" className="form-input" value={usoValor} onChange={e => setUsoValor(e.target.value)} autoFocus />
+                            </div>
+                            <button className="btn btn-primary" style={{ width:'100%' }} onClick={confirmarUso} disabled={usoSaving}>{usoSaving ? '⏳...' : '✅ Confirmar Uso'}</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function AdminCashbackPage({ storeCashbacks, showToast }) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const [lojaFiltro, setLojaFiltro] = useState('all');
+    const [busca, setBusca] = useState('');
+
+    const statusCB = (v) => {
+        if (num(v.saldoAtual) <= 0) return 'usado';
+        if (v.dataValidade && v.dataValidade < todayStr) return 'expirado';
+        return 'ativo';
+    };
+
+    const all = useMemo(() => Object.values(storeCashbacks).flat().filter(v => lojaFiltro === 'all' || v.storeId === lojaFiltro), [storeCashbacks, lojaFiltro]);
+    const filtrados = useMemo(() => {
+        const s = busca.trim().toLowerCase();
+        if (!s) return all;
+        return all.filter(v => (v.clienteNome || '').toLowerCase().includes(s));
+    }, [all, busca]);
+
+    const emAberto = all.filter(v => statusCB(v) === 'ativo').reduce((s, v) => s + num(v.saldoAtual), 0);
+    const totalGerado = all.reduce((s, v) => s + num(v.valorCashback), 0);
+
+    const handleExport = () => {
+        if (!filtrados.length) { alert('Nao ha cashback'); return; }
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filtrados.map(v => ({
+            'Loja': v.storeName, 'Cliente': v.clienteNome, 'Contato': v.clienteContato || '',
+            'Valor da Compra': num(v.valorCompra), 'Percentual (%)': num(v.percentual).toFixed(2),
+            'Valor Cashback': num(v.valorCashback), 'Saldo Atual': num(v.saldoAtual),
+            'Lançado em': v.dataLancamento || '', 'Válido até': v.dataValidade || '',
+            'Status': statusCB(v) === 'ativo' ? 'Ativo' : statusCB(v) === 'usado' ? 'Usado' : 'Expirado'
+        }))), 'Cashback');
+        XLSX.writeFile(wb, 'cashback-consolidado.xlsx');
+    };
+
+    return (
+        <div>
+            <div className="header">
+                <h1 className="page-title">💰 Cashback — Consolidado</h1>
+                <p className="page-subtitle">Visão geral de todas as lojas em tempo real</p>
+            </div>
+            <div className="stats-grid">
+                <div className="stat-card"><span className="stat-icon">💰</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totalGerado)}</span><span className="stat-label">Total Cashback Gerado</span></div>
+                <div className="stat-card"><span className="stat-icon">🟡</span><span className="stat-value" style={{ fontSize:'1.6rem', color:'var(--warning)' }}>{fmt(emAberto)}</span><span className="stat-label">Saldo em Aberto (passivo)</span></div>
+            </div>
+            <div className="card">
+                <div className="form-row">
+                    <div className="form-group">
+                        <label className="form-label">Loja</label>
+                        <select className="form-select" value={lojaFiltro} onChange={e => setLojaFiltro(e.target.value)}>
+                            <option value="all">🏪 Todas as Lojas</option>
+                            {STORES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                    </div>
+                    <div className="form-group"><label className="form-label">Buscar Cliente</label><input className="form-input" value={busca} onChange={e => setBusca(e.target.value)} /></div>
+                    <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}><button className="btn btn-success" onClick={handleExport} style={{ width:'100%' }}>📥 Exportar Excel</button></div>
+                </div>
+            </div>
+            <div className="card">
+                {filtrados.length > 0 ? (
+                    <div className="table-container">
+                        <table className="table">
+                            <thead><tr><th>Loja</th><th>Cliente</th><th>Valor Compra</th><th>%</th><th>Cashback</th><th>Saldo</th><th>Válido até</th><th>Status</th></tr></thead>
+                            <tbody>
+                                {filtrados.map(v => (
+                                    <tr key={v.storeId + '-' + v.id}>
+                                        <td style={{ fontSize:'0.85rem' }}>{v.storeName}</td>
+                                        <td style={{ fontWeight:'600' }}>{v.clienteNome}</td>
+                                        <td>{fmt(num(v.valorCompra))}</td>
+                                        <td>{num(v.percentual).toFixed(1)}%</td>
+                                        <td>{fmt(num(v.valorCashback))}</td>
+                                        <td style={{ fontWeight:'700', color: num(v.saldoAtual) > 0 ? 'var(--success)' : 'var(--text-secondary)' }}>{fmt(num(v.saldoAtual))}</td>
+                                        <td style={{ fontSize:'0.85rem' }}>{v.dataValidade ? new Date(v.dataValidade).toLocaleDateString('pt-BR') : '-'}</td>
+                                        <td>{statusCB(v) === 'ativo' ? <span className="badge badge-confirmed">🟢</span> : statusCB(v) === 'usado' ? <span className="badge badge-pending">⚪</span> : <span className="badge badge-danger">🔴</span>}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <div className="empty-state"><div className="empty-state-icon">💰</div><p>Nenhum cashback encontrado</p></div>
+                )}
+            </div>
+        </div>
+    );
+}
+
 function TestersPage({ storeId, storeName, inventory, testers, vendedoras, showToast }) {
     const todayStr = new Date().toISOString().split('T')[0];
     const [form, setForm] = useState({ date: todayStr, barcode: '', product: '', vendedora: '', motivo: '' });
