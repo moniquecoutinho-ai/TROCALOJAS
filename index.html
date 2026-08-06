@@ -5011,6 +5011,44 @@ function AdminComprasPage({ storeInsumos, storeMovs, showToast }) {
 
     const totalItens = porLoja.reduce((s, l) => s + l.itens.length, 0);
 
+    // Painel de Pedidos por Mes: agrupa as ENTRADAS (pedidos recebidos) dos ultimos 6 meses
+    const pedidosPorMes = useMemo(() => {
+        const todasMovs = Object.values(storeMovs || {}).flat().filter(m => m.tipo === 'entrada' && (lojaFiltro === 'all' || m.storeId === lojaFiltro));
+        const meses = [];
+        const ref = new Date();
+        for (let i = 5; i >= 0; i--) {
+            const d = new Date(ref.getFullYear(), ref.getMonth() - i, 1);
+            meses.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'));
+        }
+        return meses.map(mes => {
+            const doMes = todasMovs.filter(m => m.date && m.date.slice(0, 7) === mes);
+            return { mes, qtdPedidos: doMes.length, unidades: doMes.reduce((s, m) => s + num(m.qtd), 0) };
+        });
+    }, [storeMovs, lojaFiltro]);
+    const maxPedidosMes = Math.max(...pedidosPorMes.map(p => p.unidades), 1);
+
+    // Estoque de Insumos: visao consolidada de TODOS os itens de todas as lojas (filtravel)
+    const [buscaEstoque, setBuscaEstoque] = useState('');
+    const estoqueConsolidado = useMemo(() => {
+        return STORES.filter(s => lojaFiltro === 'all' || s.id === lojaFiltro).flatMap(s =>
+            (storeInsumos[s.id] || []).map(i => ({ ...i, storeId: s.id, storeName: s.name }))
+        ).filter(i => {
+            const s = buscaEstoque.toLowerCase();
+            return !s || (i.nome || '').toLowerCase().includes(s) || (i.categoria || '').toLowerCase().includes(s);
+        }).sort((a, b) => (a.storeName || '').localeCompare(b.storeName || '') || (a.nome || '').localeCompare(b.nome || ''));
+    }, [storeInsumos, lojaFiltro, buscaEstoque]);
+
+    const handleExportEstoque = () => {
+        if (!estoqueConsolidado.length) { alert('Nao ha itens'); return; }
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(estoqueConsolidado.map(i => ({
+            'Loja': i.storeName, 'Categoria': i.categoria || '', 'Item': i.nome, 'Unidade': i.unidade || '',
+            'Estoque Atual': num(i.quantity), 'Estoque Minimo': num(i.minQuantity),
+            'Status': num(i.quantity) === 0 ? 'Esgotado' : num(i.quantity) <= num(i.minQuantity) ? 'Comprar' : 'OK'
+        }))), 'Estoque de Insumos');
+        XLSX.writeFile(wb, 'estoque-insumos-' + new Date().toISOString().split('T')[0] + '.xlsx');
+    };
+
     const handleExport = () => {
         const linhas = porLoja.flatMap(l => l.itens.map(i => ({
             'Loja': l.name, 'Categoria': i.categoria || '', 'Item': i.nome, 'Unidade': i.unidade || '',
@@ -5060,6 +5098,59 @@ function AdminComprasPage({ storeInsumos, storeMovs, showToast }) {
                     ))}
                 </div>
                 {lojaFiltro !== 'all' && <div style={{ marginTop:'1rem' }}><button className="btn btn-outline btn-small" onClick={() => setLojaFiltro('all')}>↩️ Ver todas as lojas</button></div>}
+            </div>
+            <div className="card">
+                <h2 className="card-title">📅 Pedidos por Mês</h2>
+                <p style={{ color:'var(--text-secondary)', fontSize:'0.9rem', marginTop:'-0.75rem', marginBottom:'1.5rem' }}>Entradas de insumos registradas nos últimos 6 meses {lojaFiltro !== 'all' ? '— ' + ((STORES.find(s => s.id === lojaFiltro) || {}).name || '') : '(todas as lojas)'}.</p>
+                {pedidosPorMes.map(p => {
+                    const [ano, mesNum] = p.mes.split('-');
+                    const label = MONTH_NAMES_PT[parseInt(mesNum) - 1] + '/' + ano.slice(2);
+                    return (
+                        <div key={p.mes} style={{ marginBottom:'1rem' }}>
+                            <div style={{ display:'flex', justifyContent:'space-between', marginBottom:'0.35rem', fontSize:'0.95rem' }}>
+                                <span style={{ fontWeight:'600' }}>{label}</span>
+                                <span style={{ fontWeight:'700' }}>{p.unidades} unid. <span style={{ color:'var(--text-secondary)', fontWeight:'500' }}>({p.qtdPedidos} pedido{p.qtdPedidos === 1 ? '' : 's'})</span></span>
+                            </div>
+                            <div style={{ background:'var(--bg-dark)', borderRadius:'8px', height:'20px', overflow:'hidden' }}>
+                                <div style={{ width: ((p.unidades / maxPedidosMes) * 100) + '%', height:'100%', background:'linear-gradient(90deg, var(--primary), var(--secondary-light))', borderRadius:'8px', transition:'width 0.5s ease' }}></div>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+            <div className="card">
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.5rem', flexWrap:'wrap', gap:'1rem' }}>
+                    <h2 className="card-title" style={{ margin:0 }}>📋 Estoque de Insumos</h2>
+                    <button className="btn btn-success btn-small" onClick={handleExportEstoque}>📥 Excel</button>
+                </div>
+                <p style={{ color:'var(--text-secondary)', fontSize:'0.9rem', marginTop:0, marginBottom:'1.25rem' }}>Todos os itens cadastrados, de todas as lojas — não só os que precisam de compra.</p>
+                <div className="form-group" style={{ marginBottom:'1.25rem' }}>
+                    <input className="form-input" placeholder="🔍 Buscar por item ou categoria..." value={buscaEstoque} onChange={e => setBuscaEstoque(e.target.value)} />
+                </div>
+                <div className="table-container">
+                    <table className="table">
+                        <thead><tr><th>Loja</th><th>Categoria</th><th>Item</th><th>Unid.</th><th>Qtd</th><th>Mínimo</th><th>Status</th></tr></thead>
+                        <tbody>
+                            {estoqueConsolidado.map(i => {
+                                const q = num(i.quantity), m = num(i.minQuantity);
+                                return (
+                                    <tr key={i.storeId + '-' + i.id}>
+                                        <td style={{ fontSize:'0.85rem' }}>{i.storeName}</td>
+                                        <td style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>{i.categoria || '-'}</td>
+                                        <td style={{ fontWeight:'600' }}>{i.nome}</td>
+                                        <td>{i.unidade || '-'}</td>
+                                        <td style={{ fontWeight:'700' }}>{q}</td>
+                                        <td>{m}</td>
+                                        <td><span className={`stock-badge ${q === 0 ? 'out-of-stock' : q <= m ? 'low-stock' : 'in-stock'}`}>{q === 0 ? '❌ Esgotado' : q <= m ? '⚠️ Comprar' : '✅ OK'}</span></td>
+                                    </tr>
+                                );
+                            })}
+                            {estoqueConsolidado.length === 0 && (
+                                <tr><td colSpan="7" style={{ textAlign:'center', color:'var(--text-secondary)', padding:'1.5rem' }}>Nenhum item encontrado.</td></tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
             </div>
             <div className="card">
                 <h2 className="card-title">📦 Cadastro e Edição de Itens</h2>
