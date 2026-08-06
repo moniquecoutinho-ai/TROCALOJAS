@@ -4946,6 +4946,42 @@ function AdminComprasPage({ storeInsumos, storeMovs, showToast }) {
     const todayStr = new Date().toISOString().split('T')[0];
     const [lojaFiltro, setLojaFiltro] = useState('all');
     const [movMonth, setMovMonth] = useState(todayStr.slice(0, 7));
+    const [lojaCadastro, setLojaCadastro] = useState(STORES[0].id);
+    const [novoItem, setNovoItem] = useState({ nome: '', categoria: '', unidade: 'Item', quantity: '', minQuantity: '' });
+    const [editingItemId, setEditingItemId] = useState(null);
+    const [editItemForm, setEditItemForm] = useState({});
+    const [buscaItem, setBuscaItem] = useState('');
+    const [savingItem, setSavingItem] = useState(false);
+
+    const itensLojaCadastro = storeInsumos[lojaCadastro] || [];
+    const itensFiltradosCadastro = itensLojaCadastro.filter(i => {
+        const s = buscaItem.toLowerCase();
+        return (i.nome || '').toLowerCase().includes(s) || (i.categoria || '').toLowerCase().includes(s);
+    });
+
+    const salvarListaItens = async (novaLista, msg) => {
+        setSavingItem(true);
+        try {
+            await window.TrocaDB.salvarInsumos(lojaCadastro, novaLista);
+            showToast(msg);
+        } catch(e) { console.error(e); showToast('Erro ao salvar item', 'error'); }
+        finally { setSavingItem(false); }
+    };
+
+    const handleAddItem = async () => {
+        if (!novoItem.nome) { showToast('Informe o nome do item', 'error'); return; }
+        const novo = { id: Date.now(), nome: novoItem.nome, categoria: novoItem.categoria.toUpperCase(), unidade: novoItem.unidade || 'Item', quantity: parseInt(novoItem.quantity || 0), minQuantity: parseInt(novoItem.minQuantity || 1) };
+        await salvarListaItens([...itensLojaCadastro, novo], 'Item cadastrado ✅');
+        setNovoItem({ nome: '', categoria: '', unidade: 'Item', quantity: '', minQuantity: '' });
+    };
+    const handleSaveEditItem = async () => {
+        await salvarListaItens(itensLojaCadastro.map(i => i.id === editingItemId ? { ...editItemForm, quantity: parseInt(editItemForm.quantity || 0), minQuantity: parseInt(editItemForm.minQuantity || 1) } : i), 'Item atualizado ✅');
+        setEditingItemId(null);
+    };
+    const handleDeleteItem = async (id) => {
+        if (!confirm('Excluir este item do estoque da loja?')) return;
+        await salvarListaItens(itensLojaCadastro.filter(i => i.id !== id), 'Item removido');
+    };
 
     const movsDoMes = useMemo(() => {
         return Object.values(storeMovs || {}).flat()
@@ -5024,6 +5060,69 @@ function AdminComprasPage({ storeInsumos, storeMovs, showToast }) {
                     ))}
                 </div>
                 {lojaFiltro !== 'all' && <div style={{ marginTop:'1rem' }}><button className="btn btn-outline btn-small" onClick={() => setLojaFiltro('all')}>↩️ Ver todas as lojas</button></div>}
+            </div>
+            <div className="card">
+                <h2 className="card-title">📦 Cadastro e Edição de Itens</h2>
+                <p style={{ color:'var(--text-secondary)', fontSize:'0.9rem', marginTop:'-0.75rem', marginBottom:'1.5rem' }}>Cadastre novos insumos ou edite/exclua os já existentes de qualquer loja.</p>
+                <div className="form-row">
+                    <div className="form-group">
+                        <label className="form-label">Loja</label>
+                        <select className="form-select" value={lojaCadastro} onChange={e => { setLojaCadastro(e.target.value); setEditingItemId(null); }}>
+                            {STORES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                    </div>
+                </div>
+                <div className="form-row">
+                    <div className="form-group"><input className="form-input" placeholder="Nome do item *" value={novoItem.nome} onChange={e => setNovoItem({...novoItem, nome: e.target.value})} /></div>
+                    <div className="form-group"><input className="form-input" placeholder="Categoria (ex: LIMPEZA)" value={novoItem.categoria} onChange={e => setNovoItem({...novoItem, categoria: e.target.value})} /></div>
+                    <div className="form-group">
+                        <select className="form-select" value={novoItem.unidade} onChange={e => setNovoItem({...novoItem, unidade: e.target.value})}>
+                            <option>Item</option><option>Pacote</option><option>Caixa</option><option>Rolo</option><option>Litro</option><option>Kg</option>
+                        </select>
+                    </div>
+                    <div className="form-group"><input type="number" className="form-input" placeholder="Qtd atual" value={novoItem.quantity} onChange={e => setNovoItem({...novoItem, quantity: e.target.value})} /></div>
+                    <div className="form-group"><input type="number" className="form-input" placeholder="Mínimo" value={novoItem.minQuantity} onChange={e => setNovoItem({...novoItem, minQuantity: e.target.value})} /></div>
+                    <div className="form-group"><button className="btn btn-success" onClick={handleAddItem} disabled={savingItem} style={{ width:'100%' }}>➕ Cadastrar</button></div>
+                </div>
+                <div className="form-group" style={{ marginTop:'1rem', marginBottom:'1.25rem' }}>
+                    <input className="form-input" placeholder="🔍 Buscar insumo nesta loja..." value={buscaItem} onChange={e => setBuscaItem(e.target.value)} />
+                </div>
+                <div className="table-container">
+                    <table className="table">
+                        <thead><tr><th>Categoria</th><th>Item</th><th>Unid.</th><th>Qtd</th><th>Mínimo</th><th>Status</th><th>Ações</th></tr></thead>
+                        <tbody>
+                            {itensFiltradosCadastro.map(i => {
+                                const q = num(i.quantity), m = num(i.minQuantity);
+                                return (
+                                    <tr key={i.id}>
+                                        <td style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>{i.categoria || '-'}</td>
+                                        <td>{editingItemId === i.id ? <input className="form-input" value={editItemForm.nome} onChange={e => setEditItemForm({...editItemForm, nome: e.target.value})} /> : <strong>{i.nome}</strong>}</td>
+                                        <td>{editingItemId === i.id ? <input className="form-input" style={{ width:'110px' }} value={editItemForm.unidade || ''} onChange={e => setEditItemForm({...editItemForm, unidade: e.target.value})} /> : (i.unidade || '-')}</td>
+                                        <td>{editingItemId === i.id ? <input type="number" className="form-input" style={{ width:'80px' }} value={editItemForm.quantity} onChange={e => setEditItemForm({...editItemForm, quantity: e.target.value})} /> : <span style={{ fontWeight:'700' }}>{q}</span>}</td>
+                                        <td>{editingItemId === i.id ? <input type="number" className="form-input" style={{ width:'80px' }} value={editItemForm.minQuantity} onChange={e => setEditItemForm({...editItemForm, minQuantity: e.target.value})} /> : m}</td>
+                                        <td><span className={`stock-badge ${q === 0 ? 'out-of-stock' : q <= m ? 'low-stock' : 'in-stock'}`}>{q === 0 ? '❌ Esgotado' : q <= m ? '⚠️ Comprar' : '✅ OK'}</span></td>
+                                        <td>
+                                            {editingItemId === i.id ? (
+                                                <div style={{ display:'flex', gap:'0.5rem' }}>
+                                                    <button className="btn btn-success btn-small" onClick={handleSaveEditItem} disabled={savingItem}>✅</button>
+                                                    <button className="btn btn-secondary btn-small" onClick={() => setEditingItemId(null)}>❌</button>
+                                                </div>
+                                            ) : (
+                                                <div style={{ display:'flex', gap:'0.5rem' }}>
+                                                    <button className="btn btn-primary btn-small" onClick={() => { setEditingItemId(i.id); setEditItemForm(i); }}>✏️</button>
+                                                    <button className="btn btn-danger btn-small" onClick={() => handleDeleteItem(i.id)}>🗑️</button>
+                                                </div>
+                                            )}
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                            {itensFiltradosCadastro.length === 0 && (
+                                <tr><td colSpan="7" style={{ textAlign:'center', color:'var(--text-secondary)', padding:'1.5rem' }}>Nenhum item encontrado nesta loja.</td></tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
             </div>
             <div className="card">
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem', flexWrap:'wrap', gap:'1rem' }}>
