@@ -5087,17 +5087,44 @@ function AdminComprasPage({ storeInsumos, storeMovs, showToast }) {
                 </div>
             </div>
             <div className="card">
-                <h2 className="card-title">🏪 O que precisa ser comprado — por loja</h2>
+                <h2 className="card-title">🏪 Quantos itens cada loja precisa comprar</h2>
+                <p style={{ color:'var(--text-secondary)', fontSize:'0.9rem', marginTop:'-0.75rem', marginBottom:'1.5rem' }}>Clique numa loja para ver só os itens dela na lista logo abaixo.</p>
                 <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(190px, 1fr))', gap:'1rem' }}>
                     {porLoja.map(l => (
-                        <div key={l.id} className="cal-summary-item" style={{ border: l.itens.length > 0 ? '2px solid var(--danger)' : '1px solid var(--success)', cursor:'pointer' }} onClick={() => setLojaFiltro(l.id)}>
+                        <div key={l.id} className="cal-summary-item" style={{ border: lojaFiltro === l.id ? '2px solid var(--primary)' : l.itens.length > 0 ? '2px solid var(--danger)' : '1px solid var(--success)', cursor:'pointer', background: lojaFiltro === l.id ? 'var(--bg-hover)' : undefined }} onClick={() => setLojaFiltro(l.id)}>
                             <span className="cal-summary-value" style={{ fontSize:'1.6rem', color: l.itens.length > 0 ? 'var(--danger)' : 'var(--success)' }}>{l.itens.length}</span>
-                            <div className="cal-summary-label" style={{ fontWeight:'700' }}>{l.name}</div>
-                            <div className="cal-summary-label">{l.itens.length > 0 ? l.itens.reduce((s, i) => s + sugestaoCompra(i), 0) + ' unid. sugeridas' : 'tudo em dia ✅'}</div>
+                            <div className="cal-summary-label" style={{ fontWeight:'700' }}>{l.name}{lojaFiltro === l.id ? ' 👁️' : ''}</div>
+                            <div className="cal-summary-label">{l.itens.length > 0 ? 'itens em falta' : 'tudo em dia ✅'}</div>
                         </div>
                     ))}
                 </div>
                 {lojaFiltro !== 'all' && <div style={{ marginTop:'1rem' }}><button className="btn btn-outline btn-small" onClick={() => setLojaFiltro('all')}>↩️ Ver todas as lojas</button></div>}
+            </div>
+            <div className="card">
+                <h2 className="card-title">📋 Lista de Compras {lojaFiltro !== 'all' ? '— ' + ((STORES.find(s => s.id === lojaFiltro) || {}).name || '') : '(todas as lojas)'}</h2>
+                <p style={{ color:'var(--text-secondary)', fontSize:'0.9rem', marginTop:'-0.75rem', marginBottom:'1.5rem' }}>Um item por linha, já com a quantidade sugerida para comprar de cada um.</p>
+                {totalItens > 0 ? (
+                    <div className="table-container">
+                        <table className="table">
+                            <thead><tr><th>Loja</th><th>Categoria</th><th>Item</th><th>Unidade</th><th>Estoque Atual</th><th>Mínimo</th><th>Comprar (sugestão)</th></tr></thead>
+                            <tbody>
+                                {porLoja.flatMap(l => l.itens.map(i => (
+                                    <tr key={l.id + '-' + i.id}>
+                                        <td style={{ fontWeight:'700' }}>{l.name}</td>
+                                        <td style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>{i.categoria || '-'}</td>
+                                        <td style={{ fontWeight:'600' }}>{i.nome}</td>
+                                        <td>{i.unidade || '-'}</td>
+                                        <td style={{ fontWeight:'700', color: num(i.quantity) === 0 ? 'var(--danger)' : 'var(--warning)' }}>{num(i.quantity)}</td>
+                                        <td>{num(i.minQuantity)}</td>
+                                        <td style={{ fontWeight:'800', color:'var(--primary)' }}>{sugestaoCompra(i)} {i.unidade || ''}</td>
+                                    </tr>
+                                )))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <div className="empty-state"><div className="empty-state-icon">✅</div><p>Nada precisando de compra {lojaFiltro !== 'all' ? 'nesta loja' : 'em nenhuma loja'} agora.</p></div>
+                )}
             </div>
             <div className="card">
                 <h2 className="card-title">📅 Pedidos por Mês</h2>
@@ -5251,30 +5278,6 @@ function AdminComprasPage({ storeInsumos, storeMovs, showToast }) {
                     <div style={{ color:'var(--text-secondary)' }}>Nenhuma movimentação neste mês.</div>
                 )}
             </div>
-            {porLoja.map(l => (
-                <div key={l.id} className="card" style={{ border: l.itens.length > 0 ? '1px solid var(--warning)' : undefined }}>
-                    <h2 className="card-title">🏪 {l.name} — {l.itens.length > 0 ? l.itens.length + ' item(ns) para comprar' : 'tudo em dia ✅'}</h2>
-                    {l.itens.length > 0 && (
-                        <div className="table-container">
-                            <table className="table">
-                                <thead><tr><th>Categoria</th><th>Item</th><th>Unidade</th><th>Atual</th><th>Mínimo</th><th>Comprar</th></tr></thead>
-                                <tbody>
-                                    {l.itens.map(i => (
-                                        <tr key={i.id}>
-                                            <td style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>{i.categoria || '-'}</td>
-                                            <td style={{ fontWeight:'600' }}>{i.nome}</td>
-                                            <td>{i.unidade || '-'}</td>
-                                            <td style={{ fontWeight:'700', color: num(i.quantity) === 0 ? 'var(--danger)' : 'var(--warning)' }}>{num(i.quantity)}</td>
-                                            <td>{num(i.minQuantity)}</td>
-                                            <td style={{ fontWeight:'800', color:'var(--primary)' }}>{sugestaoCompra(i)} {i.unidade || ''}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-                </div>
-            ))}
         </div>
     );
 }
