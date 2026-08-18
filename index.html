@@ -1075,7 +1075,7 @@ function App() {
                 {currentPage === 'valepresente' &&
                     <ValePresentePage storeId={currentStore.id} storeName={currentStore.name} vales={vales} showToast={showToast} />}
                 {currentPage === 'cashback' &&
-                    <CashbackPage storeId={currentStore.id} storeName={currentStore.name} cashbacks={cashbacks} showToast={showToast} />}
+                    <CashbackPage storeId={currentStore.id} storeName={currentStore.name} cashbacks={cashbacks} vendedoras={vendedoras} showToast={showToast} />}
                 {currentPage === 'acompanhamento' &&
                     <AcompanhamentoVendedorasPage storeFechamentos={{ [currentStore.id]: fechamentosLoja || [] }} metas={metas} metasVend={metasVend} showToast={showToast} fixedStore={currentStore.id} fixedStoreName={currentStore.name} />}
                 {currentPage === 'reports' &&
@@ -4093,14 +4093,19 @@ function AdminValePresentePage({ storeVales, showToast }) {
 }
 
 // ===================== CASHBACK =====================
-function CashbackPage({ storeId, storeName, cashbacks, showToast }) {
+function CashbackPage({ storeId, storeName, cashbacks, vendedoras, showToast }) {
     const todayStr = new Date().toISOString().split('T')[0];
-    const [form, setForm] = useState({ clienteNome:'', clienteContato:'', valorCompra:'', tipoCalculo:'percentual', percentual:'', valorFixo:'', validadeDias:'30' });
+    const [form, setForm] = useState({ ticket:'', vendedora:'', clienteNome:'', clienteCPF:'', clienteContato:'', valorCompra:'', tipoCalculo:'percentual', percentual:'', valorFixo:'', validadeDias:'30' });
     const [saving, setSaving] = useState(false);
     const [busca, setBusca] = useState('');
     const [usoModal, setUsoModal] = useState(null);
     const [usoValor, setUsoValor] = useState('');
     const [usoSaving, setUsoSaving] = useState(false);
+    const [cbView, setCbView] = useState('lista');
+    const today = new Date();
+    const [viewYear, setViewYear] = useState(today.getFullYear());
+    const [viewMonth, setViewMonth] = useState(today.getMonth());
+    const [selectedDay, setSelectedDay] = useState(null);
 
     const valorCashbackCalc = form.tipoCalculo === 'percentual'
         ? num(form.valorCompra) * (num(form.percentual) / 100)
@@ -4119,13 +4124,14 @@ function CashbackPage({ storeId, storeName, cashbacks, showToast }) {
         setSaving(true);
         try {
             await window.TrocaDB.salvarCashback(storeId, {
-                clienteNome: form.clienteNome.toUpperCase(), clienteContato: form.clienteContato,
+                ticket: form.ticket, vendedora: form.vendedora,
+                clienteNome: form.clienteNome.toUpperCase(), clienteCPF: form.clienteCPF, clienteContato: form.clienteContato,
                 valorCompra: num(form.valorCompra), tipoCalculo: form.tipoCalculo,
                 percentual: form.tipoCalculo === 'percentual' ? num(form.percentual) : percentualEquivalente,
                 valorCashback: valorCashbackCalc, saldoAtual: valorCashbackCalc,
                 dataLancamento: todayStr, dataValidade: dataValidade(form.validadeDias), usos: []
             });
-            setForm({ clienteNome:'', clienteContato:'', valorCompra:'', tipoCalculo: form.tipoCalculo, percentual:'', valorFixo:'', validadeDias: form.validadeDias });
+            setForm({ ticket:'', vendedora: form.vendedora, clienteNome:'', clienteCPF:'', clienteContato:'', valorCompra:'', tipoCalculo: form.tipoCalculo, percentual:'', valorFixo:'', validadeDias: form.validadeDias });
             showToast('Cashback lançado! 💰 Valor: ' + fmt(valorCashbackCalc));
         } catch(e) { console.error(e); showToast('Erro ao lançar cashback', 'error'); }
         finally { setSaving(false); }
@@ -4148,6 +4154,44 @@ function CashbackPage({ storeId, storeName, cashbacks, showToast }) {
         });
         return Object.values(map).sort((a, b) => b.saldo - a.saldo);
     }, [cashbacks]);
+
+    // Lembretes: cashback ativo vencendo nos proximos 7 dias
+    const lembretes = useMemo(() => {
+        const limite = new Date(); limite.setDate(limite.getDate() + 7);
+        const limiteStr = limite.toISOString().split('T')[0];
+        return (cashbacks || []).filter(v => statusCB(v) === 'ativo' && v.dataValidade && v.dataValidade >= todayStr && v.dataValidade <= limiteStr)
+            .sort((a, b) => (a.dataValidade > b.dataValidade ? 1 : -1));
+    }, [cashbacks, todayStr]);
+
+    // Calendario: lancamentos por dia (dataLancamento)
+    const cbPorDia = useMemo(() => {
+        const map = {};
+        (cashbacks || []).forEach(v => {
+            if (!v.dataLancamento) return;
+            if (!map[v.dataLancamento]) map[v.dataLancamento] = [];
+            map[v.dataLancamento].push(v);
+        });
+        return map;
+    }, [cashbacks]);
+    const calendarDays = useMemo(() => {
+        const firstDay = new Date(viewYear, viewMonth, 1);
+        const lastDay = new Date(viewYear, viewMonth + 1, 0);
+        const days = [];
+        for (let i = firstDay.getDay() - 1; i >= 0; i--) days.push({ date: new Date(viewYear, viewMonth, -i), otherMonth: true });
+        for (let i = 1; i <= lastDay.getDate(); i++) days.push({ date: new Date(viewYear, viewMonth, i), otherMonth: false });
+        const rem = 7 - (days.length % 7);
+        if (rem < 7) for (let i = 1; i <= rem; i++) days.push({ date: new Date(viewYear, viewMonth + 1, i), otherMonth: true });
+        return days;
+    }, [viewYear, viewMonth]);
+    const prevMonth = () => { if (viewMonth === 0) { setViewYear(y => y-1); setViewMonth(11); } else setViewMonth(m => m-1); setSelectedDay(null); };
+    const nextMonth = () => { if (viewMonth === 11) { setViewYear(y => y+1); setViewMonth(0); } else setViewMonth(m => m+1); setSelectedDay(null); };
+    const monthCbs = (cashbacks || []).filter(v => {
+        const d = parseDateKey(v.dataLancamento);
+        return d && d.getFullYear() === viewYear && d.getMonth() === viewMonth;
+    });
+    const selectedKey = selectedDay ? dateKey(selectedDay) : null;
+    const selectedDayCbs = selectedKey ? (cbPorDia[selectedKey] || []) : [];
+    const todayKey = dateKey(today);
 
     const abrirUso = (cliente) => { setUsoModal(cliente); setUsoValor(''); };
     const confirmarUso = async () => {
@@ -4185,7 +4229,7 @@ function CashbackPage({ storeId, storeName, cashbacks, showToast }) {
             'Cliente': c.nome, 'Contato': c.contato || '', 'Saldo Disponível': c.saldo, 'Nº Lançamentos': c.entradas.length
         }))), 'Saldo por Cliente');
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet((cashbacks || []).map(v => ({
-            'Cliente': v.clienteNome, 'Contato': v.clienteContato || '', 'Valor da Compra': num(v.valorCompra),
+            'Ticket': v.ticket || '', 'Vendedora': v.vendedora || '', 'Cliente': v.clienteNome, 'CPF': v.clienteCPF || '', 'Contato': v.clienteContato || '', 'Valor da Compra': num(v.valorCompra),
             'Percentual (%)': num(v.percentual).toFixed(2), 'Valor Cashback': num(v.valorCashback), 'Saldo Atual': num(v.saldoAtual),
             'Lançado em': v.dataLancamento || '', 'Válido até': v.dataValidade || '',
             'Status': statusCB(v) === 'ativo' ? 'Ativo' : statusCB(v) === 'usado' ? 'Usado' : 'Expirado'
@@ -4202,7 +4246,17 @@ function CashbackPage({ storeId, storeName, cashbacks, showToast }) {
             <div className="card">
                 <h2 className="card-title">➕ Lançar Cashback</h2>
                 <div className="form-row">
+                    <div className="form-group"><label className="form-label">Nº do Ticket</label><input className="form-input" value={form.ticket} onChange={e => setForm({...form, ticket: e.target.value})} placeholder="Ex: 17081" /></div>
+                    <div className="form-group"><label className="form-label">Vendedora</label>
+                        <select className="form-select" value={form.vendedora} onChange={e => setForm({...form, vendedora: e.target.value})}>
+                            <option value="">Selecione...</option>
+                            {(vendedoras || []).filter(v => !v.arquivada).map(v => <option key={v.id} value={v.nome}>{v.nome}</option>)}
+                        </select>
+                    </div>
+                </div>
+                <div className="form-row">
                     <div className="form-group"><label className="form-label">Nome do Cliente *</label><input className="form-input" value={form.clienteNome} onChange={e => setForm({...form, clienteNome: e.target.value})} placeholder="Nome completo" /></div>
+                    <div className="form-group"><label className="form-label">CPF do Cliente</label><input className="form-input" inputMode="numeric" value={form.clienteCPF} onChange={e => setForm({...form, clienteCPF: e.target.value})} placeholder="000.000.000-00" /></div>
                     <div className="form-group"><label className="form-label">Contato</label><input className="form-input" value={form.clienteContato} onChange={e => setForm({...form, clienteContato: e.target.value})} placeholder="Telefone" /></div>
                     <div className="form-group"><label className="form-label">Valor da Compra (R$) *</label><input type="text" inputMode="decimal" className="form-input" value={form.valorCompra} onChange={e => setForm({...form, valorCompra: e.target.value})} placeholder="0,00" /></div>
                 </div>
@@ -4228,6 +4282,80 @@ function CashbackPage({ storeId, storeName, cashbacks, showToast }) {
                 )}
                 <button className="btn btn-primary" style={{ width:'100%' }} onClick={lancar} disabled={saving}>{saving ? '⏳...' : '💰 Lançar Cashback'}</button>
             </div>
+            {lembretes.length > 0 && (
+                <div className="card" style={{ border:'2px solid var(--warning)' }}>
+                    <h2 className="card-title">🔔 Lembrete — Cashback Vencendo em Até 7 Dias</h2>
+                    <p style={{ color:'var(--text-secondary)', fontSize:'0.9rem', marginTop:'-0.75rem', marginBottom:'1.5rem' }}>Vale avisar esses clientes antes que o saldo expire.</p>
+                    {lembretes.map(v => (
+                        <div key={v.id} className="item-card">
+                            <div className="item-info">
+                                <div className="item-description">{v.clienteNome}{v.clienteContato ? ' — ' + v.clienteContato : ''}</div>
+                                <div className="item-condition">Saldo <strong style={{ color:'var(--success)' }}>{fmt(num(v.saldoAtual))}</strong> vence em {parseDateKey(v.dataValidade) ? parseDateKey(v.dataValidade).toLocaleDateString('pt-BR') : v.dataValidade}</div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+            <div className="view-toggle" style={{ maxWidth:'320px' }}>
+                <button className={`view-toggle-btn ${cbView === 'lista' ? 'active' : ''}`} onClick={() => setCbView('lista')}>📋 Lista</button>
+                <button className={`view-toggle-btn ${cbView === 'calendario' ? 'active' : ''}`} onClick={() => setCbView('calendario')}>🗓️ Calendário</button>
+            </div>
+            {cbView === 'calendario' && (
+                <div className="card">
+                    <div className="calendar-nav">
+                        <div style={{ display:'flex', gap:'0.5rem' }}>
+                            <button className="calendar-nav-btn" onClick={prevMonth}>‹</button>
+                            <button className="calendar-nav-btn" onClick={nextMonth}>›</button>
+                        </div>
+                        <div className="calendar-month-label">{MONTH_NAMES_PT[viewMonth]} {viewYear}</div>
+                        <div style={{ fontSize:'0.9rem', color:'var(--text-secondary)' }}>{monthCbs.length} lançamentos</div>
+                    </div>
+                    <div className="calendar-summary-bar">
+                        <div className="cal-summary-item"><span className="cal-summary-value">{monthCbs.length}</span><div className="cal-summary-label">💰 Lançamentos</div></div>
+                        <div className="cal-summary-item"><span className="cal-summary-value" style={{ color:'var(--success)' }}>{fmt(monthCbs.reduce((s, v) => s + num(v.valorCashback), 0))}</span><div className="cal-summary-label">Gerado no Mês</div></div>
+                        <div className="cal-summary-item"><span className="cal-summary-value" style={{ color:'var(--warning)' }}>{monthCbs.filter(v => statusCB(v) === 'ativo').length}</span><div className="cal-summary-label">🟢 Ativos</div></div>
+                    </div>
+                    <div className="calendar-grid">
+                        {DAY_NAMES_PT.map(d => <div key={d} className="calendar-weekday">{d}</div>)}
+                        {calendarDays.map(({ date, otherMonth }, idx) => {
+                            const k = dateKey(date);
+                            const cs = cbPorDia[k] || [];
+                            let cls = 'calendar-day';
+                            if (otherMonth) cls += ' other-month';
+                            if (cs.length > 0 && !otherMonth) cls += ' has-exchanges';
+                            if (k === todayKey) cls += ' today';
+                            if (k === selectedKey && !otherMonth) cls += ' selected';
+                            return (
+                                <div key={idx} className={cls} onClick={() => { if (!otherMonth && cs.length > 0) setSelectedDay(k === selectedKey ? null : date); }}>
+                                    <div className="day-number">{date.getDate()}{k === todayKey && <span className="day-today-dot"></span>}</div>
+                                    {!otherMonth && cs.slice(0, 2).map(v => (
+                                        <span key={v.id} className="day-exchange-pill" style={{ background: statusCB(v) === 'ativo' ? 'linear-gradient(135deg, var(--success), #04b887)' : statusCB(v) === 'usado' ? 'linear-gradient(135deg, var(--border), #555)' : 'linear-gradient(135deg, var(--danger), #c33055)' }}>{v.clienteNome}</span>
+                                    ))}
+                                    {!otherMonth && cs.length > 2 && <span className="day-more-pill">+{cs.length - 2}</span>}
+                                </div>
+                            );
+                        })}
+                    </div>
+                    {selectedDay && selectedDayCbs.length > 0 && (
+                        <div className="cal-day-detail">
+                            <div className="cal-day-detail-title">
+                                <span>💰 {selectedDay.toLocaleDateString('pt-BR', { weekday:'long', day:'numeric', month:'long' })}</span>
+                                <button className="cal-day-detail-close" onClick={() => setSelectedDay(null)}>×</button>
+                            </div>
+                            {selectedDayCbs.map(v => (
+                                <div key={v.id} className="cal-exchange-row" style={{ cursor:'default' }}>
+                                    <div>
+                                        <div style={{ fontWeight:'700' }}>{v.clienteNome}</div>
+                                        <div style={{ fontSize:'0.85rem', color:'var(--text-secondary)' }}>{v.ticket ? '#' + v.ticket + ' • ' : ''}{v.vendedora ? v.vendedora + ' • ' : ''}Compra {fmt(num(v.valorCompra))} → Cashback {fmt(num(v.valorCashback))}</div>
+                                    </div>
+                                    <span className={`badge badge-${statusCB(v) === 'ativo' ? 'confirmed' : statusCB(v) === 'usado' ? 'pending' : 'danger'}`}>{statusCB(v) === 'ativo' ? '🟢' : statusCB(v) === 'usado' ? '⚪' : '🔴'}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+            {cbView === 'lista' && (
             <div className="card">
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem', flexWrap:'wrap', gap:'1rem' }}>
                     <h2 className="card-title" style={{ margin:0 }}>👥 Saldo por Cliente</h2>
@@ -4257,6 +4385,7 @@ function CashbackPage({ storeId, storeName, cashbacks, showToast }) {
                     <div className="empty-state"><div className="empty-state-icon">💰</div><p>Nenhum cashback lançado ainda</p></div>
                 )}
             </div>
+            )}
             {usoModal && (
                 <div className="modal-overlay" onClick={() => setUsoModal(null)}>
                     <div className="modal-content" style={{ maxWidth:'440px' }} onClick={e => e.stopPropagation()}>
