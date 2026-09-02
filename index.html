@@ -6786,6 +6786,15 @@ function AdminVendasPage({ storeVendas, showToast }) {
     );
 }
 
+function acharColuna(row, aliases) {
+    const chaves = Object.keys(row);
+    for (const alias of aliases) {
+        const k = chaves.find(c => c.trim().toUpperCase().replace(/[ÃÁÂ]/g,'A').replace(/[ÉÊ]/g,'E').replace(/[ÍÌ]/g,'I').replace(/[ÕÓÔ]/g,'O').replace(/[Ú]/g,'U').replace(/Ç/g,'C') === alias);
+        if (k !== undefined) return row[k];
+    }
+    return '';
+}
+
 function AdminCatalogoPage({ showToast }) {
     const [catalogo, setCatalogo] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -6795,6 +6804,9 @@ function AdminCatalogoPage({ showToast }) {
     const [editForm, setEditForm] = useState({});
     const [syncing, setSyncing] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [importPreview, setImportPreview] = useState(null); // itens lidos da planilha, aguardando confirmacao
+    const [importFileName, setImportFileName] = useState('');
+    const [importing, setImporting] = useState(false);
 
     useEffect(() => {
         let inicializou = false;
@@ -6851,6 +6863,77 @@ function AdminCatalogoPage({ showToast }) {
         finally { setSyncing(false); }
     };
 
+    const handleFile = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        setImportFileName(file.name);
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            try {
+                const data = new Uint8Array(ev.target.result);
+                const wb = XLSX.read(data, { type: 'array' });
+                const ws = wb.Sheets[wb.SheetNames[0]];
+                const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+                const itens = rows.map((row, idx) => {
+                    const product = String(acharColuna(row, ['PRODUTO', 'NOME', 'DESCRICAO', 'ITEM']) || '').trim();
+                    if (!product) return null;
+                    return {
+                        id: Date.now() + idx,
+                        barcode: String(acharColuna(row, ['CODIGO', 'CODIGO DE BARRAS', 'BARCODE', 'EAN']) || '').trim(),
+                        product,
+                        group: String(acharColuna(row, ['GRUPO', 'CATEGORIA']) || '').trim(),
+                        line: String(acharColuna(row, ['LINHA']) || '').trim(),
+                        price: num(acharColuna(row, ['VALOR', 'PRECO'])),
+                        quantity: 0,
+                        minQuantity: parseInt(acharColuna(row, ['ESTOQUE MINIMO', 'MINIMO', 'MIN'])) || 3
+                    };
+                }).filter(Boolean);
+                if (!itens.length) { showToast('Não encontrei uma coluna de nome do produto na planilha', 'error'); setImportPreview(null); return; }
+                setImportPreview(itens);
+            } catch(err) { console.error(err); showToast('Erro ao ler a planilha — confira o formato', 'error'); }
+        };
+        reader.readAsArrayBuffer(file);
+        e.target.value = '';
+    };
+
+    const cancelarImport = () => { setImportPreview(null); setImportFileName(''); };
+
+    const confirmarImportMesclar = async () => {
+        setImporting(true);
+        try {
+            const byKey = {};
+            catalogo.forEach(p => { byKey[(p.product || '').trim().toUpperCase()] = p; });
+            const novaLista = [...catalogo];
+            importPreview.forEach(item => {
+                const key = item.product.trim().toUpperCase();
+                const existente = byKey[key];
+                if (existente) {
+                    const idx = novaLista.findIndex(p => p.id === existente.id);
+                    novaLista[idx] = { ...existente, barcode: item.barcode || existente.barcode, group: item.group || existente.group, line: item.line || existente.line, price: item.price || existente.price, minQuantity: item.minQuantity };
+                } else {
+                    novaLista.push(item);
+                }
+            });
+            await window.TrocaDB.salvarCatalogoMaster(novaLista);
+            setCatalogo(novaLista);
+            showToast(importPreview.length + ' item(ns) da planilha mesclados no catálogo ✅ — clique em "Sincronizar" para levar às lojas');
+            cancelarImport();
+        } catch(e) { console.error(e); showToast('Erro ao importar planilha', 'error'); }
+        finally { setImporting(false); }
+    };
+
+    const confirmarImportSubstituir = async () => {
+        if (!confirm('Isso vai APAGAR o catálogo mestre atual (' + catalogo.length + ' produtos) e substituir pelos ' + importPreview.length + ' produtos desta planilha. Confirmar?')) return;
+        setImporting(true);
+        try {
+            await window.TrocaDB.salvarCatalogoMaster(importPreview);
+            setCatalogo(importPreview);
+            showToast('Catálogo substituído pela planilha! ✅ — clique em "Sincronizar" para levar às lojas (produtos removidos também somem de lá)');
+            cancelarImport();
+        } catch(e) { console.error(e); showToast('Erro ao substituir catálogo', 'error'); }
+        finally { setImporting(false); }
+    };
+
     return (
         <div>
             <div className="header">
@@ -6865,6 +6948,25 @@ function AdminCatalogoPage({ showToast }) {
                     </div>
                     <button className="btn btn-primary" onClick={handleSync} disabled={syncing}>{syncing ? '⏳ Sincronizando...' : '🔄 Sincronizar Agora'}</button>
                 </div>
+            </div>
+            <div className="card" style={{ border:'1px solid var(--secondary-light)' }}>
+                <h2 className="card-title">📥 Importar Planilha (Excel/CSV)</h2>
+                <p style={{ color:'var(--text-secondary)', fontSize:'0.9rem', marginTop:'-0.75rem', marginBottom:'1.5rem' }}>Colunas aceitas (em qualquer ordem): Produto/Nome, Código/Código de Barras, Grupo, Linha, Valor/Preço, Estoque Mínimo.</p>
+                <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} style={{ display:'none' }} id="import-catalogo" />
+                <label htmlFor="import-catalogo" className="btn btn-secondary">📁 Escolher Planilha</label>
+                {importFileName && !importPreview && <span style={{ marginLeft:'1rem', color:'var(--text-secondary)' }}>{importFileName}</span>}
+                {importPreview && (
+                    <div style={{ marginTop:'1.5rem' }}>
+                        <div style={{ padding:'1rem', background:'var(--bg-dark)', borderRadius:'10px', marginBottom:'1rem' }}>
+                            ✅ <strong>{importPreview.length} produtos</strong> lidos de <strong>{importFileName}</strong>. Escolha o que fazer:
+                        </div>
+                        <div style={{ display:'flex', gap:'1rem', flexWrap:'wrap' }}>
+                            <button className="btn btn-success" onClick={confirmarImportMesclar} disabled={importing}>{importing ? '⏳...' : '➕ Adicionar/Atualizar (mescla com o catálogo atual)'}</button>
+                            <button className="btn btn-danger" onClick={confirmarImportSubstituir} disabled={importing}>{importing ? '⏳...' : '🗑️ Substituir Catálogo Inteiro (apaga o que não estiver na planilha)'}</button>
+                            <button className="btn btn-outline" onClick={cancelarImport} disabled={importing}>Cancelar</button>
+                        </div>
+                    </div>
+                )}
             </div>
             <div className="card">
                 <h2 className="card-title">➕ Adicionar Produto ao Catálogo</h2>
