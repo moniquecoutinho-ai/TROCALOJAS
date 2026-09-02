@@ -359,6 +359,45 @@
         return results;
     }
 
+    // ===== CATALOGO MESTRE (gerenciado pelo Admin: adicionar, editar, excluir) =====
+    async function salvarCatalogoMaster(items) {
+        const ref = db.collection("config").doc("catalog_master");
+        await ref.set({ items: items, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    }
+
+    function ouvirCatalogoMaster(callback) {
+        const ref = db.collection("config").doc("catalog_master");
+        return ref.onSnapshot(function(snap) {
+            callback(snap.exists ? (snap.data().items || null) : null);
+        }, function() { callback(null); });
+    }
+
+    async function getEstoque(storeId) {
+        const ref = db.collection("stores").doc(storeId).collection("config").doc("inventory");
+        const snap = await ref.get();
+        return snap.exists ? (snap.data().items || []) : [];
+    }
+
+    async function sincronizarCatalogoLojas(storeIds, catalogoMaster) {
+        const results = [];
+        for (const storeId of storeIds) {
+            const ref = db.collection("stores").doc(storeId).collection("config").doc("inventory");
+            const snap = await ref.get();
+            const antigos = (snap.exists && snap.data().items) || [];
+            const byKey = {};
+            antigos.forEach(function(p) { byKey[(p.product || '').trim().toUpperCase()] = p; });
+            const merged = catalogoMaster.map(function(p) {
+                const key = (p.product || '').trim().toUpperCase();
+                const old = byKey[key];
+                if (old) return { ...p, quantity: old.quantity || 0, price: old.price != null ? old.price : p.price, minQuantity: old.minQuantity != null ? old.minQuantity : p.minQuantity };
+                return { ...p, quantity: 0 };
+            });
+            await ref.set({ items: merged, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+            results.push(storeId);
+        }
+        return results;
+    }
+
     // ===== ATUALIZACAO AUTOMATICA DO CATALOGO =====
     // Aplica o catalogo novo preservando quantidades/precos ja lancados e produtos manuais
     async function garantirCatalogo(storeId, catalogo, versao) {
@@ -722,8 +761,8 @@
 
     window.TrocaDB = {
         salvarTroca, atualizarStatus, atualizarTroca, deletarTroca,
-        ouvirTrocas, ouvirTodasLojas, salvarEstoque, ouvirEstoque,
-        seedInventoryAllStores,
+        ouvirTrocas, ouvirTodasLojas, salvarEstoque, ouvirEstoque, getEstoque,
+        seedInventoryAllStores, salvarCatalogoMaster, ouvirCatalogoMaster, sincronizarCatalogoLojas,
         salvarFechamento, getFechamento, ouvirTodosFechamentos, ouvirFechamentosLoja,
         salvarMetas, ouvirMetas, salvarMetasVendedoras, ouvirMetasVendedoras,
         salvarVenda, deletarVenda, atualizarVenda, ouvirVendas, ouvirTodasVendas,
@@ -1259,6 +1298,11 @@ function AdminView({ onLogout, showToast }) {
                             </div>
                         </li>
                         <li className="nav-item">
+                            <div className={`nav-link ${adminPage === 'catalogo' ? 'active' : ''}`} onClick={() => setAdminPage('catalogo')}>
+                                <span className="nav-icon">📦</span>Catálogo
+                            </div>
+                        </li>
+                        <li className="nav-item">
                             <div className={`nav-link ${adminPage === 'estoque' ? 'active' : ''}`} onClick={() => setAdminPage('estoque')}>
                                 <span className="nav-icon">📦</span>Sincronizar Estoque
                             </div>
@@ -1315,6 +1359,7 @@ function AdminView({ onLogout, showToast }) {
                         </div>
                     </div>
                 )}
+                {adminPage === 'catalogo' && <AdminCatalogoPage showToast={showToast} />}
                 {adminPage === 'estoque' && <AdminSeedPage showToast={showToast} />}
                 {adminPage === 'dashboard' && (
                     <>
@@ -2978,12 +3023,12 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
     }, [storeFechamentos, range, storeFilter]);
 
     const totals = useMemo(() => {
-        const t = { credito: 0, creditoVista: 0, creditoParcelado: 0, debito: 0, pix: 0, dinheiro: 0, nf: 0, vendido: 0, trocas: 0, sangria: 0, usoCaixa: 0, saldo: 0, objetivo: 0, abertura: 0, acessorios: 0, delivery: 0, fretesAcc: 0, fretesCli: 0, fretesEmp: 0 };
+        const t = { credito: 0, creditoVista: 0, creditoParcelado: 0, debito: 0, pix: 0, dinheiro: 0, nf: 0, vendido: 0, trocas: 0, trocasEntrada: 0, trocasSaida: 0, sangria: 0, usoCaixa: 0, saldo: 0, objetivo: 0, abertura: 0, acessorios: 0, delivery: 0, fretesAcc: 0, fretesCli: 0, fretesEmp: 0 };
         filtered.forEach(f => {
             const c = calcFechTotais(f);
             t.credito += c.totalCredito; t.creditoVista += num(c.totalCreditoVista); t.creditoParcelado += num(c.totalCreditoParcelado); t.debito += num(f.debito); t.pix += c.totalPix;
             t.dinheiro += num(f.dinheiro); t.nf += c.totalNF; t.vendido += c.totalVendido;
-            t.trocas += num(f.valorTrocas); t.sangria += num(f.sangria); t.usoCaixa += num(f.usoCaixa);
+            t.trocas += num(f.valorTrocas); t.trocasEntrada += num(f.valorTrocasEntrada); t.trocasSaida += num(f.valorTrocasSaida); t.sangria += num(f.sangria); t.usoCaixa += num(f.usoCaixa);
             t.saldo += c.saldoDinheiro; t.objetivo += num(f.objetivoDia); t.abertura += num(f.abertura);
             t.acessorios += c.totalAcessorios; t.delivery += c.totalDelivery; t.fretesAcc += num(c.totalFretesAcc);
             t.fretesCli += num(c.fretesCliente); t.fretesEmp += num(c.fretesEmpresa);
@@ -3130,6 +3175,7 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
                     <button className={`admin-cal-filter-btn ${mode === 'week' ? 'active' : ''}`} onClick={() => setMode('week')}>Semana</button>
                     <button className={`admin-cal-filter-btn ${mode === 'month' ? 'active' : ''}`} onClick={() => setMode('month')}>Mês</button>
                     <button className={`admin-cal-filter-btn ${mode === 'custom' ? 'active' : ''}`} onClick={() => setMode('custom')}>Personalizado</button>
+                    <button className="admin-cal-filter-btn" style={{ marginLeft:'auto', borderColor:'var(--success)', color:'var(--success)' }} onClick={() => { setMode('month'); setRefMonth(todayStr.slice(0, 7)); }}>📅 Relatório do Mês Atual</button>
                 </div>
                 <div className="form-row">
                     {(mode === 'day' || mode === 'week') && (
@@ -3169,7 +3215,9 @@ function AdminFechamentosPage({ storeFechamentos, storeExchanges, metas, showToa
             </div>
             <div className="stats-grid">
                 <div className="stat-card"><span className="stat-icon">💰</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.vendido)}</span><span className="stat-label">Total Vendido {totals.objetivo > 0 ? '(' + pctPeriodo.toFixed(0) + '% do objetivo)' : ''}</span></div>
-                <div className="stat-card"><span className="stat-icon">🔄</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.trocas)}</span><span className="stat-label">Trocas</span></div>
+                <div className="stat-card"><span className="stat-icon">📥</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.trocasEntrada)}</span><span className="stat-label">Entrada — produtos devolvidos pelo cliente</span></div>
+                <div className="stat-card"><span className="stat-icon">📤</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.trocasSaida)}</span><span className="stat-label">Saída — produtos entregues</span></div>
+                <div className="stat-card"><span className="stat-icon">💰</span><span className="stat-value" style={{ fontSize:'1.6rem', color: totals.trocas >= 0 ? 'var(--success)' : 'var(--danger)' }}>{fmt(totals.trocas)}</span><span className="stat-label">Diferença Paga (saída − entrada)</span></div>
                 <div className="stat-card"><span className="stat-icon">🛵</span><span className="stat-value" style={{ fontSize:'1.6rem' }}>{fmt(totals.delivery)}</span><span className="stat-label">Vendas Delivery — sem frete (fretes: 👤 cliente {fmt(totals.fretesCli)} • 🏢 empresa {fmt(totals.fretesEmp)})</span></div>
                 <div className="stat-card"><span className="stat-icon">📤</span><span className="stat-value" style={{ fontSize:'1.6rem', color:'var(--danger)' }}>{fmt(totals.sangria)}</span><span className="stat-label">Retirada de Sangria</span></div>
                 <div className="stat-card"><span className="stat-icon">🛍️</span><span className="stat-value" style={{ fontSize:'1.6rem', color:'var(--warning)' }}>{fmt(totals.usoCaixa)}</span><span className="stat-label">Uso de Caixa</span></div>
@@ -3460,7 +3508,9 @@ function PrintAdminFechamentos({ filtered, totals, range, ranking, inters, store
                 <div className="receipt-item"><span>Dinheiro</span><strong>{fmt(totals.dinheiro)}</strong></div>
                 <div className="receipt-item"><span>Nota Fiscal</span><strong>{fmt(totals.nf)}</strong></div>
                 <div className="receipt-total"><span>TOTAL VENDIDO</span><span>{fmt(totals.vendido)}</span></div>
-                <div className="receipt-item"><span>Trocas</span><strong>{fmt(totals.trocas)}</strong></div>
+                <div className="receipt-item"><span>Trocas — Entrada (produtos devolvidos)</span><strong>{fmt(totals.trocasEntrada)}</strong></div>
+                <div className="receipt-item"><span>Trocas — Saída (produtos entregues)</span><strong>{fmt(totals.trocasSaida)}</strong></div>
+                <div className="receipt-item"><span>Trocas — Diferença Paga</span><strong>{fmt(totals.trocas)}</strong></div>
                 <div className="receipt-item"><span>Vendas Delivery (sem frete)</span><strong>{fmt(totals.delivery)}</strong></div>
                 <div className="receipt-item"><span>Fretes pagos pelo CLIENTE</span><strong>{fmt(totals.fretesCli)}</strong></div>
                 <div className="receipt-item"><span>Fretes pagos pela EMPRESA</span><strong>{fmt(totals.fretesEmp)}</strong></div>
@@ -6730,6 +6780,144 @@ function AdminVendasPage({ storeVendas, showToast }) {
                     </div>
                 ) : (
                     <div className="empty-state"><div className="empty-state-icon">🛒</div><p>Nenhuma venda no período selecionado</p></div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function AdminCatalogoPage({ showToast }) {
+    const [catalogo, setCatalogo] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [search, setSearch] = useState('');
+    const [novo, setNovo] = useState({ barcode:'', product:'', group:'', line:'', price:'', minQuantity:'3' });
+    const [editingId, setEditingId] = useState(null);
+    const [editForm, setEditForm] = useState({});
+    const [syncing, setSyncing] = useState(false);
+    const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+        let inicializou = false;
+        const unsub = window.TrocaDB.ouvirCatalogoMaster((items) => {
+            if (items) { setCatalogo(items); setLoading(false); }
+            else if (!inicializou) {
+                inicializou = true;
+                window.TrocaDB.salvarCatalogoMaster(INITIAL_INVENTORY).then(() => {
+                    setCatalogo(INITIAL_INVENTORY); setLoading(false);
+                });
+            }
+        });
+        return () => unsub && unsub();
+    }, []);
+
+    const filtrado = catalogo.filter(p => {
+        const s = search.toLowerCase();
+        return (p.product || '').toLowerCase().includes(s) || (p.barcode || '').toString().includes(s) || (p.group || '').toLowerCase().includes(s);
+    });
+
+    const salvar = async (novaLista, msg) => {
+        setSaving(true);
+        try {
+            await window.TrocaDB.salvarCatalogoMaster(novaLista);
+            showToast(msg);
+        } catch(e) { console.error(e); showToast('Erro ao salvar catálogo', 'error'); }
+        finally { setSaving(false); }
+    };
+
+    const handleAdd = async () => {
+        if (!novo.product) { showToast('Informe o nome do produto', 'error'); return; }
+        const nomeUpper = novo.product.trim().toUpperCase();
+        if (catalogo.some(p => (p.product || '').trim().toUpperCase() === nomeUpper)) { showToast('Já existe um produto com esse nome no catálogo', 'error'); return; }
+        const item = { id: Date.now(), barcode: novo.barcode, product: novo.product, group: novo.group, line: novo.line, price: num(novo.price), quantity: 0, minQuantity: parseInt(novo.minQuantity || 3) };
+        await salvar([...catalogo, item], 'Produto adicionado ao catálogo ✅ — clique em "Sincronizar" para levar às lojas');
+        setNovo({ barcode:'', product:'', group:'', line:'', price:'', minQuantity:'3' });
+    };
+    const handleSaveEdit = async () => {
+        await salvar(catalogo.map(p => p.id === editingId ? { ...editForm, price: num(editForm.price), minQuantity: parseInt(editForm.minQuantity || 3) } : p), 'Produto atualizado ✅ — clique em "Sincronizar" para levar às lojas');
+        setEditingId(null);
+    };
+    const handleDelete = async (p) => {
+        if (!confirm('Excluir "' + p.product + '" do catálogo mestre?\n\nDepois de excluir, clique em "Sincronizar" para o produto sumir também de todas as lojas.')) return;
+        await salvar(catalogo.filter(x => x.id !== p.id), 'Produto excluído do catálogo — clique em "Sincronizar" para remover das lojas');
+    };
+
+    const handleSync = async () => {
+        if (!confirm('Isso vai aplicar o catálogo mestre em TODAS as lojas: adiciona os novos, atualiza nome/grupo/preço padrão e REMOVE os produtos excluídos daqui. As quantidades já lançadas em cada loja são preservadas. Confirmar?')) return;
+        setSyncing(true);
+        try {
+            await window.TrocaDB.sincronizarCatalogoLojas(STORES.map(s => s.id), catalogo);
+            showToast('Catálogo sincronizado em todas as lojas! ✅');
+        } catch(e) { console.error(e); showToast('Erro ao sincronizar catálogo', 'error'); }
+        finally { setSyncing(false); }
+    };
+
+    return (
+        <div>
+            <div className="header">
+                <h1 className="page-title">📦 Catálogo — Cadastro e Edição</h1>
+                <p className="page-subtitle">Adicione, edite ou exclua produtos do catálogo — depois sincronize para aplicar em todas as lojas</p>
+            </div>
+            <div className="card" style={{ border:'2px solid var(--primary)' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:'1rem' }}>
+                    <div>
+                        <div style={{ fontWeight:'700' }}>🔄 Sincronizar com Todas as Lojas</div>
+                        <div style={{ fontSize:'0.9rem', color:'var(--text-secondary)' }}>Aplica os produtos, edições e exclusões daqui em todas as filiais — sem apagar as quantidades já lançadas.</div>
+                    </div>
+                    <button className="btn btn-primary" onClick={handleSync} disabled={syncing}>{syncing ? '⏳ Sincronizando...' : '🔄 Sincronizar Agora'}</button>
+                </div>
+            </div>
+            <div className="card">
+                <h2 className="card-title">➕ Adicionar Produto ao Catálogo</h2>
+                <div className="form-row">
+                    <div className="form-group"><input className="form-input" placeholder="Código de Barras" value={novo.barcode} onChange={e => setNovo({...novo, barcode: e.target.value})} /></div>
+                    <div className="form-group"><input className="form-input" placeholder="Nome do Produto *" value={novo.product} onChange={e => setNovo({...novo, product: e.target.value})} /></div>
+                    <div className="form-group"><input className="form-input" placeholder="Grupo" value={novo.group} onChange={e => setNovo({...novo, group: e.target.value})} /></div>
+                    <div className="form-group"><input className="form-input" placeholder="Linha" value={novo.line} onChange={e => setNovo({...novo, line: e.target.value})} /></div>
+                    <div className="form-group"><input type="text" inputMode="decimal" className="form-input" placeholder="Preço (R$)" value={novo.price} onChange={e => setNovo({...novo, price: e.target.value})} /></div>
+                    <div className="form-group"><input type="number" className="form-input" placeholder="Mínimo" value={novo.minQuantity} onChange={e => setNovo({...novo, minQuantity: e.target.value})} /></div>
+                    <div className="form-group"><button className="btn btn-success" onClick={handleAdd} disabled={saving} style={{ width:'100%' }}>➕ Adicionar</button></div>
+                </div>
+            </div>
+            <div className="card">
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem', flexWrap:'wrap', gap:'1rem' }}>
+                    <h2 className="card-title" style={{ margin:0 }}>📋 Catálogo Mestre ({catalogo.length} produtos)</h2>
+                </div>
+                <div className="form-group" style={{ marginBottom:'1.5rem' }}>
+                    <input className="form-input" placeholder="🔍 Buscar por nome, código de barras ou grupo..." value={search} onChange={e => setSearch(e.target.value)} />
+                </div>
+                {loading ? (
+                    <div style={{ color:'var(--text-secondary)' }}>⏳ Carregando catálogo...</div>
+                ) : (
+                    <div className="table-container">
+                        <table className="table">
+                            <thead><tr><th>Código</th><th>Produto</th><th>Grupo</th><th>Preço</th><th>Mínimo</th><th>Ações</th></tr></thead>
+                            <tbody>
+                                {filtrado.slice(0, 300).map(p => (
+                                    <tr key={p.id}>
+                                        <td style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>{editingId === p.id ? <input className="form-input" style={{ width:'130px' }} value={editForm.barcode || ''} onChange={e => setEditForm({...editForm, barcode: e.target.value})} /> : (p.barcode || '-')}</td>
+                                        <td>{editingId === p.id ? <input className="form-input" value={editForm.product} onChange={e => setEditForm({...editForm, product: e.target.value})} /> : <strong>{p.product}</strong>}</td>
+                                        <td style={{ fontSize:'0.85rem' }}>{editingId === p.id ? <input className="form-input" style={{ width:'140px' }} value={editForm.group || ''} onChange={e => setEditForm({...editForm, group: e.target.value})} /> : (p.group || '-')}</td>
+                                        <td>{editingId === p.id ? <input type="text" inputMode="decimal" className="form-input" style={{ width:'100px' }} value={editForm.price} onChange={e => setEditForm({...editForm, price: e.target.value})} /> : fmt(p.price)}</td>
+                                        <td>{editingId === p.id ? <input type="number" className="form-input" style={{ width:'70px' }} value={editForm.minQuantity} onChange={e => setEditForm({...editForm, minQuantity: e.target.value})} /> : num(p.minQuantity)}</td>
+                                        <td>
+                                            {editingId === p.id ? (
+                                                <div style={{ display:'flex', gap:'0.5rem' }}>
+                                                    <button className="btn btn-success btn-small" onClick={handleSaveEdit} disabled={saving}>✅</button>
+                                                    <button className="btn btn-secondary btn-small" onClick={() => setEditingId(null)}>❌</button>
+                                                </div>
+                                            ) : (
+                                                <div style={{ display:'flex', gap:'0.5rem' }}>
+                                                    <button className="btn btn-primary btn-small" onClick={() => { setEditingId(p.id); setEditForm(p); }}>✏️</button>
+                                                    <button className="btn btn-danger btn-small" onClick={() => handleDelete(p)}>🗑️</button>
+                                                </div>
+                                            )}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                        {filtrado.length > 300 && <div style={{ marginTop:'1rem', color:'var(--text-secondary)', fontSize:'0.85rem' }}>Mostrando 300 de {filtrado.length} — use a busca para refinar.</div>}
+                    </div>
                 )}
             </div>
         </div>
