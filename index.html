@@ -763,6 +763,7 @@
         salvarTroca, atualizarStatus, atualizarTroca, deletarTroca,
         ouvirTrocas, ouvirTodasLojas, salvarEstoque, ouvirEstoque, getEstoque,
         seedInventoryAllStores, salvarCatalogoMaster, ouvirCatalogoMaster, sincronizarCatalogoLojas,
+        salvarInventarioDiario, ouvirInventariosDiarios, ouvirTodosInventariosDiarios, ouvirTodosEstoques,
         salvarFechamento, getFechamento, ouvirTodosFechamentos, ouvirFechamentosLoja,
         salvarMetas, ouvirMetas, salvarMetasVendedoras, ouvirMetasVendedoras,
         salvarVenda, deletarVenda, atualizarVenda, ouvirVendas, ouvirTodasVendas,
@@ -973,6 +974,7 @@ function App() {
     const [transferencias, setTransferencias] = useState([]);
     const [vales, setVales] = useState([]);
     const [cashbacks, setCashbacks] = useState([]);
+    const [inventariosDiarios, setInventariosDiarios] = useState([]);
     const [syncStatus, setSyncStatus] = useState('loading');
     const [loading, setLoading] = useState(false);
     const unsubscribeRef = useRef([]);
@@ -1008,7 +1010,8 @@ function App() {
             const unsubTransf = window.TrocaDB.ouvirTransferencias(currentStore.id, (t) => setTransferencias(t));
             const unsubVales = window.TrocaDB.ouvirValePresente(currentStore.id, (v) => setVales(v));
             const unsubCashback = window.TrocaDB.ouvirCashback(currentStore.id, (v) => setCashbacks(v));
-            unsubscribeRef.current = [unsubExchanges, unsubInventory, unsubMetas, unsubMetasVend, unsubVendas, unsubVendedoras, unsubFechLoja, unsubTesters, unsubInsumos, unsubMovs, unsubTransf, unsubVales, unsubCashback];
+            const unsubInvDiario = window.TrocaDB.ouvirInventariosDiarios(currentStore.id, (d) => setInventariosDiarios(d));
+            unsubscribeRef.current = [unsubExchanges, unsubInventory, unsubMetas, unsubMetasVend, unsubVendas, unsubVendedoras, unsubFechLoja, unsubTesters, unsubInsumos, unsubMovs, unsubTransf, unsubVales, unsubCashback, unsubInvDiario];
         } catch(e) {
             console.error(e);
             setSyncStatus('offline');
@@ -1080,6 +1083,7 @@ function App() {
                             { id: 'transferencias', icon: '🔁', label: 'Transferencias' },
                             { id: 'valepresente', icon: '🎁', label: 'Vale Presente' },
                             { id: 'cashback', icon: '💰', label: 'Cashback' },
+                            { id: 'inventario', icon: '📋', label: 'Inventario Diario' },
                             { id: 'acompanhamento', icon: '📈', label: 'Acompanhamento' },
                             { id: 'reports',      icon: '📊', label: 'Relatorios' },
                         ].map(item => (
@@ -1115,6 +1119,8 @@ function App() {
                     <ValePresentePage storeId={currentStore.id} storeName={currentStore.name} vales={vales} showToast={showToast} />}
                 {currentPage === 'cashback' &&
                     <CashbackPage storeId={currentStore.id} storeName={currentStore.name} cashbacks={cashbacks} vendedoras={vendedoras} showToast={showToast} />}
+                {currentPage === 'inventario' &&
+                    <InventarioDiarioPage storeId={currentStore.id} storeName={currentStore.name} inventory={inventory} onSave={handleSaveInventory} inventariosDiarios={inventariosDiarios} showToast={showToast} />}
                 {currentPage === 'acompanhamento' &&
                     <AcompanhamentoVendedorasPage storeFechamentos={{ [currentStore.id]: fechamentosLoja || [] }} metas={metas} metasVend={metasVend} showToast={showToast} fixedStore={currentStore.id} fixedStoreName={currentStore.name} />}
                 {currentPage === 'reports' &&
@@ -1135,6 +1141,8 @@ function AdminView({ onLogout, showToast }) {
     const [storeTransfs, setStoreTransfs] = useState({});
     const [storeVales, setStoreVales] = useState({});
     const [storeCashbacks, setStoreCashbacks] = useState({});
+    const [storeEstoques, setStoreEstoques] = useState({});
+    const [storeInventariosDiarios, setStoreInventariosDiarios] = useState({});
     const [metas, setMetas] = useState({});
     const [metasVend, setMetasVend] = useState({});
     const [selectedStore, setSelectedStore] = useState('all');
@@ -1176,6 +1184,12 @@ function AdminView({ onLogout, showToast }) {
             }));
             unsubs.push(window.TrocaDB.ouvirTodosCashback(STORES, (storeId, cbs) => {
                 setStoreCashbacks(prev => ({ ...prev, [storeId]: cbs }));
+            }));
+            unsubs.push(window.TrocaDB.ouvirTodosEstoques(STORES, INITIAL_INVENTORY, (storeId, itens) => {
+                setStoreEstoques(prev => ({ ...prev, [storeId]: itens }));
+            }));
+            unsubs.push(window.TrocaDB.ouvirTodosInventariosDiarios(STORES, (storeId, docs) => {
+                setStoreInventariosDiarios(prev => ({ ...prev, [storeId]: docs }));
             }));
             unsubs.push(window.TrocaDB.ouvirTodosTesters(STORES, (storeId, testers) => {
                 setStoreTesters(prev => ({ ...prev, [storeId]: testers }));
@@ -1288,6 +1302,11 @@ function AdminView({ onLogout, showToast }) {
                             </div>
                         </li>
                         <li className="nav-item">
+                            <div className={`nav-link ${adminPage === 'inventario' ? 'active' : ''}`} onClick={() => setAdminPage('inventario')}>
+                                <span className="nav-icon">📋</span>Inventário Diário
+                            </div>
+                        </li>
+                        <li className="nav-item">
                             <div className={`nav-link ${adminPage === 'compras' ? 'active' : ''}`} onClick={() => setAdminPage('compras')}>
                                 <span className="nav-icon">🛒</span>Compras
                             </div>
@@ -1344,6 +1363,9 @@ function AdminView({ onLogout, showToast }) {
                 )}
                 {adminPage === 'cashback' && (
                     <AdminCashbackPage storeCashbacks={storeCashbacks} showToast={showToast} />
+                )}
+                {adminPage === 'inventario' && (
+                    <AdminInventarioPage storeEstoques={storeEstoques} storeInventariosDiarios={storeInventariosDiarios} showToast={showToast} />
                 )}
                 {adminPage === 'compras' && (
                     <AdminComprasPage storeInsumos={storeInsumos} storeMovs={storeMovs} showToast={showToast} />
@@ -2108,6 +2130,330 @@ function HistoryPage({ storeId, exchanges, showToast }) {
             )}
             {selectedExchange && <ExchangeModal exchange={selectedExchange} storeId={storeId} onClose={() => setSelectedExchange(null)} onStatusChange={() => { showToast('Status atualizado ✅'); setSelectedExchange(null); }} onEdit={(ex) => { setSelectedExchange(null); setEditingExchange(ex); }} />}
             {editingExchange && <EditExchangeModal exchange={editingExchange} storeId={storeId} onClose={() => setEditingExchange(null)} onSaved={() => { showToast('Troca atualizada ✅'); setEditingExchange(null); }} />}
+        </div>
+    );
+}
+
+// ===================== INVENTARIO DIARIO =====================
+function InventarioDiarioPage({ storeId, storeName, inventory, onSave, inventariosDiarios, showToast }) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const [contagemAberta, setContagemAberta] = useState(null); // doc sendo contado agora
+    const [valores, setValores] = useState({}); // { itemId: valorContado }
+    const [saving, setSaving] = useState(false);
+    const [busca, setBusca] = useState('');
+
+    const pendentes = (inventariosDiarios || []).filter(d => d.status === 'pendente').sort((a, b) => (a.date > b.date ? 1 : -1));
+    const concluidas = (inventariosDiarios || []).filter(d => d.status === 'concluido').sort((a, b) => (b.date > a.date ? 1 : -1));
+
+    const abrirContagem = (doc) => {
+        setContagemAberta(doc);
+        const v = {};
+        (doc.itens || []).forEach(i => { v[i.id] = i.contado != null ? String(i.contado) : ''; });
+        setValores(v);
+        setBusca('');
+    };
+
+    const itensFiltrados = contagemAberta ? (contagemAberta.itens || []).filter(i => {
+        const s = busca.toLowerCase();
+        return !s || (i.product || '').toLowerCase().includes(s) || (i.barcode || '').toLowerCase().includes(s);
+    }) : [];
+
+    const totalItens = contagemAberta ? (contagemAberta.itens || []).length : 0;
+    const totalPreenchidos = contagemAberta ? (contagemAberta.itens || []).filter(i => valores[i.id] !== '' && valores[i.id] !== undefined).length : 0;
+
+    const handleFinalizar = async () => {
+        const faltando = (contagemAberta.itens || []).filter(i => valores[i.id] === '' || valores[i.id] === undefined);
+        if (faltando.length > 0) { showToast('Preencha a contagem de todos os itens (' + faltando.length + ' faltando)', 'error'); return; }
+        setSaving(true);
+        try {
+            const itensAtualizados = (contagemAberta.itens || []).map(i => {
+                const contado = parseInt(valores[i.id]) || 0;
+                return { ...i, contado, ajuste: contado - num(i.estoqueSistema) };
+            });
+            await window.TrocaDB.salvarInventarioDiario(storeId, contagemAberta.id, {
+                itens: itensAtualizados, status: 'concluido', finalizadoEm: new Date().toLocaleString('pt-BR')
+            });
+            // Aplica a contagem fisica no estoque real da loja (preserva os demais campos do produto)
+            const novoInventory = inventory.map(prod => {
+                const match = itensAtualizados.find(i => i.id === prod.id || ((i.product || '').trim().toUpperCase() === (prod.product || '').trim().toUpperCase()));
+                return match ? { ...prod, quantity: match.contado } : prod;
+            });
+            await onSave(novoInventory);
+            const divergentes = itensAtualizados.filter(i => i.ajuste !== 0).length;
+            showToast('Contagem enviada! ' + divergentes + ' item(ns) com divergência — estoque já ajustado ✅');
+            setContagemAberta(null);
+        } catch(e) { console.error(e); showToast('Erro ao enviar contagem', 'error'); }
+        finally { setSaving(false); }
+    };
+
+    if (contagemAberta) {
+        const somenteLeitura = contagemAberta.status === 'concluido';
+        return (
+            <div>
+                <div className="header">
+                    <h1 className="page-title">📋 {somenteLeitura ? 'Contagem Concluída' : 'Contagem de Estoque'} — {parseDateKey(contagemAberta.date) ? parseDateKey(contagemAberta.date).toLocaleDateString('pt-BR') : contagemAberta.date}</h1>
+                    <p className="page-subtitle">{somenteLeitura ? 'Consulta — esta contagem já foi enviada e o estoque já foi ajustado' : 'Conte fisicamente cada item e informe a quantidade encontrada na prateleira'}</p>
+                </div>
+                <div className="card">
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:'1rem', marginBottom:'1.25rem' }}>
+                        <span style={{ color:'var(--text-secondary)' }}>{somenteLeitura ? totalItens + ' itens contados' : totalPreenchidos + ' de ' + totalItens + ' itens contados'}</span>
+                        <button className="btn btn-outline btn-small" onClick={() => setContagemAberta(null)}>← Voltar</button>
+                    </div>
+                    <div className="form-group" style={{ marginBottom:'1.25rem' }}>
+                        <input className="form-input" value={busca} onChange={e => setBusca(e.target.value)} placeholder="🔍 Buscar item nesta contagem..." />
+                    </div>
+                    <div className="table-container">
+                        <table className="table">
+                            <thead><tr><th>Produto</th><th>Código</th><th>Sistema</th><th>Contagem Física</th><th>Ajuste</th></tr></thead>
+                            <tbody>
+                                {itensFiltrados.map(i => {
+                                    const contadoNum = somenteLeitura ? num(i.contado) : (valores[i.id] !== '' && valores[i.id] !== undefined ? parseInt(valores[i.id]) : null);
+                                    const ajuste = somenteLeitura ? num(i.ajuste) : (contadoNum !== null ? contadoNum - num(i.estoqueSistema) : null);
+                                    return (
+                                        <tr key={i.id}>
+                                            <td style={{ fontWeight:'600' }}>{i.product}</td>
+                                            <td style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>{i.barcode || '-'}</td>
+                                            <td>{num(i.estoqueSistema)}</td>
+                                            <td>{somenteLeitura ? <strong>{contadoNum}</strong> : <input type="number" min="0" className="form-input" style={{ width:'100px' }} value={valores[i.id] ?? ''} onChange={e => setValores(p => ({ ...p, [i.id]: e.target.value }))} />}</td>
+                                            <td style={{ fontWeight:'700', color: ajuste === null ? 'var(--text-secondary)' : ajuste === 0 ? 'var(--success)' : ajuste > 0 ? 'var(--primary)' : 'var(--danger)' }}>{ajuste === null ? '-' : (ajuste > 0 ? '+' : '') + ajuste}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                    {!somenteLeitura && <button className="btn btn-success" style={{ width:'100%', marginTop:'1.5rem' }} onClick={handleFinalizar} disabled={saving}>{saving ? '⏳ Enviando...' : '✅ Finalizar Contagem e Ajustar Estoque'}</button>}
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div>
+            <div className="header">
+                <h1 className="page-title">📋 Inventário Diário</h1>
+                <p className="page-subtitle">Contagens de estoque selecionadas pela Administração para esta loja</p>
+            </div>
+            <div className="card" style={{ border: pendentes.length > 0 ? '2px solid var(--warning)' : undefined }}>
+                <h2 className="card-title">🟡 Contagens Pendentes ({pendentes.length})</h2>
+                {pendentes.length > 0 ? pendentes.map(doc => (
+                    <div key={doc.id} className="item-card">
+                        <div className="item-info">
+                            <div className="item-description">{parseDateKey(doc.date) ? parseDateKey(doc.date).toLocaleDateString('pt-BR') : doc.date}</div>
+                            <div className="item-condition">{(doc.itens || []).length} item(ns) para contar{doc.criadoPor ? ' • solicitado por ' + doc.criadoPor : ''}</div>
+                        </div>
+                        <button className="btn btn-primary btn-small" onClick={() => abrirContagem(doc)}>📋 Iniciar Contagem</button>
+                    </div>
+                )) : (
+                    <div style={{ color:'var(--text-secondary)' }}>Nenhuma contagem pendente no momento 🎉</div>
+                )}
+            </div>
+            <div className="card">
+                <h2 className="card-title">📜 Histórico de Contagens</h2>
+                {concluidas.length > 0 ? (
+                    <div className="table-container">
+                        <table className="table">
+                            <thead><tr><th>Data</th><th>Itens</th><th>Divergentes</th><th>Concluída em</th><th></th></tr></thead>
+                            <tbody>
+                                {concluidas.map(doc => {
+                                    const divergentes = (doc.itens || []).filter(i => num(i.ajuste) !== 0).length;
+                                    return (
+                                        <tr key={doc.id}>
+                                            <td>{parseDateKey(doc.date) ? parseDateKey(doc.date).toLocaleDateString('pt-BR') : doc.date}</td>
+                                            <td style={{ fontWeight:'700' }}>{(doc.itens || []).length}</td>
+                                            <td style={{ fontWeight:'700', color: divergentes > 0 ? 'var(--danger)' : 'var(--success)' }}>{divergentes}</td>
+                                            <td style={{ fontSize:'0.85rem', color:'var(--text-secondary)' }}>{doc.finalizadoEm || '-'}</td>
+                                            <td><button className="btn btn-outline btn-small" onClick={() => abrirContagem(doc)}>👁️ Ver</button></td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <div className="empty-state"><div className="empty-state-icon">📋</div><p>Nenhuma contagem concluída ainda</p></div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, showToast }) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const [lojaSel, setLojaSel] = useState(STORES[0].id);
+    const [dataContagem, setDataContagem] = useState(todayStr);
+    const [busca, setBusca] = useState('');
+    const [selecionados, setSelecionados] = useState({});
+    const [criando, setCriando] = useState(false);
+    const [refMonth, setRefMonth] = useState(todayStr.slice(0, 7));
+    const [lojaFiltroDash, setLojaFiltroDash] = useState('all');
+
+    const itensLoja = storeEstoques[lojaSel] || [];
+    const itensFiltrados = itensLoja.filter(i => {
+        const s = busca.toLowerCase();
+        return !s || (i.product || '').toLowerCase().includes(s) || (i.group || '').toLowerCase().includes(s) || (i.barcode || '').includes(s);
+    });
+    const qtdSelecionados = Object.values(selecionados).filter(Boolean).length;
+
+    const toggleItem = (id) => setSelecionados(p => ({ ...p, [id]: !p[id] }));
+    const selecionarTodosFiltrados = () => {
+        const novo = { ...selecionados };
+        itensFiltrados.forEach(i => { novo[i.id] = true; });
+        setSelecionados(novo);
+    };
+    const limparSelecao = () => setSelecionados({});
+
+    const criarContagem = async () => {
+        const itensSel = itensLoja.filter(i => selecionados[i.id]);
+        if (itensSel.length === 0) { showToast('Selecione ao menos um item para contar', 'error'); return; }
+        setCriando(true);
+        try {
+            const storeName = (STORES.find(s => s.id === lojaSel) || {}).name;
+            const itens = itensSel.map(i => ({ id: i.id, product: i.product, barcode: i.barcode || '', group: i.group || '', estoqueSistema: num(i.quantity), contado: null, ajuste: null }));
+            await window.TrocaDB.salvarInventarioDiario(lojaSel, dataContagem, {
+                date: dataContagem, storeName, criadoPor: 'Administrador', itens, status: 'pendente', criadoEm: new Date().toLocaleString('pt-BR')
+            });
+            showToast('Contagem do dia criada para ' + storeName + '! A loja já pode iniciar. 📋');
+            setSelecionados({});
+        } catch(e) { console.error(e); showToast('Erro ao criar contagem', 'error'); }
+        finally { setCriando(false); }
+    };
+
+    // Dashboard de divergencia (todas as contagens concluidas, filtravel por mes/loja)
+    const todasConcluidas = useMemo(() => {
+        return Object.values(storeInventariosDiarios || {}).flat()
+            .filter(d => d.status === 'concluido' && d.date && d.date.slice(0, 7) === refMonth && (lojaFiltroDash === 'all' || d.storeId === lojaFiltroDash));
+    }, [storeInventariosDiarios, refMonth, lojaFiltroDash]);
+
+    const divergenciaPorLoja = useMemo(() => {
+        const map = {};
+        todasConcluidas.forEach(d => {
+            const k = d.storeName || d.storeId;
+            if (!map[k]) map[k] = { nome: k, contagens: 0, itensContados: 0, itensDivergentes: 0, somaAjusteAbs: 0, somaAjusteLiquido: 0 };
+            map[k].contagens += 1;
+            (d.itens || []).forEach(i => {
+                map[k].itensContados += 1;
+                const aj = num(i.ajuste);
+                if (aj !== 0) { map[k].itensDivergentes += 1; map[k].somaAjusteAbs += Math.abs(aj); map[k].somaAjusteLiquido += aj; }
+            });
+        });
+        return Object.values(map).map(l => ({ ...l, pctDivergencia: l.itensContados > 0 ? (l.itensDivergentes / l.itensContados) * 100 : 0 }))
+            .sort((a, b) => b.pctDivergencia - a.pctDivergencia);
+    }, [todasConcluidas]);
+
+    const maxDivergencia = Math.max(...divergenciaPorLoja.map(l => l.pctDivergencia), 1);
+    const piorLoja = divergenciaPorLoja[0];
+
+    const todasPendentes = useMemo(() => Object.values(storeInventariosDiarios || {}).flat().filter(d => d.status === 'pendente'), [storeInventariosDiarios]);
+
+    const handleExportDashboard = () => {
+        if (!divergenciaPorLoja.length) { alert('Nao ha contagens concluidas no periodo'); return; }
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(divergenciaPorLoja.map(l => ({
+            'Loja': l.nome, 'Contagens Realizadas': l.contagens, 'Itens Contados': l.itensContados,
+            'Itens com Divergência': l.itensDivergentes, '% Divergência': l.pctDivergencia.toFixed(1) + '%',
+            'Soma Ajustes (absoluto)': l.somaAjusteAbs, 'Saldo Líquido do Ajuste': l.somaAjusteLiquido
+        }))), 'Divergência por Loja');
+        const linhas = todasConcluidas.flatMap(d => (d.itens || []).filter(i => num(i.ajuste) !== 0).map(i => ({
+            'Data': d.date, 'Loja': d.storeName, 'Produto': i.product, 'Código': i.barcode || '',
+            'Estoque Sistema': num(i.estoqueSistema), 'Contagem Física': num(i.contado), 'Ajuste': num(i.ajuste)
+        })));
+        if (linhas.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(linhas), 'Itens Divergentes');
+        XLSX.writeFile(wb, 'divergencia-estoque-' + refMonth + '.xlsx');
+    };
+
+    return (
+        <div>
+            <div className="header">
+                <h1 className="page-title">📋 Inventário Diário</h1>
+                <p className="page-subtitle">Escolha os itens que cada loja vai contar hoje e acompanhe a divergência de estoque</p>
+            </div>
+            <div className="card">
+                <h2 className="card-title">➕ Criar Contagem do Dia</h2>
+                <div className="form-row">
+                    <div className="form-group">
+                        <label className="form-label">Loja</label>
+                        <select className="form-select" value={lojaSel} onChange={e => { setLojaSel(e.target.value); setSelecionados({}); }}>
+                            {STORES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                    </div>
+                    <div className="form-group"><label className="form-label">Data da Contagem</label><input type="date" className="form-input" value={dataContagem} onChange={e => setDataContagem(e.target.value)} /></div>
+                    <div className="form-group"><label className="form-label">Buscar Item</label><input className="form-input" value={busca} onChange={e => setBusca(e.target.value)} placeholder="Nome, grupo ou código..." /></div>
+                </div>
+                <div style={{ display:'flex', gap:'0.75rem', flexWrap:'wrap', marginBottom:'1.25rem' }}>
+                    <button className="btn btn-outline btn-small" onClick={selecionarTodosFiltrados}>☑️ Selecionar todos os filtrados ({itensFiltrados.length})</button>
+                    <button className="btn btn-outline btn-small" onClick={limparSelecao}>Limpar seleção</button>
+                    <span style={{ marginLeft:'auto', fontWeight:'700', color:'var(--primary)' }}>{qtdSelecionados} selecionado(s)</span>
+                </div>
+                <div className="table-container" style={{ maxHeight:'400px', overflowY:'auto' }}>
+                    <table className="table">
+                        <thead><tr><th></th><th>Produto</th><th>Grupo</th><th>Estoque Atual</th></tr></thead>
+                        <tbody>
+                            {itensFiltrados.slice(0, 400).map(i => (
+                                <tr key={i.id} style={{ cursor:'pointer' }} onClick={() => toggleItem(i.id)}>
+                                    <td><input type="checkbox" checked={!!selecionados[i.id]} onChange={() => toggleItem(i.id)} onClick={e => e.stopPropagation()} /></td>
+                                    <td style={{ fontWeight:'600' }}>{i.product}</td>
+                                    <td style={{ fontSize:'0.85rem', color:'var(--text-secondary)' }}>{i.group || '-'}</td>
+                                    <td style={{ fontWeight:'700' }}>{num(i.quantity)}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                    {itensFiltrados.length > 400 && <div style={{ padding:'1rem', color:'var(--text-secondary)', fontSize:'0.85rem' }}>Mostrando 400 de {itensFiltrados.length} — use a busca para refinar.</div>}
+                </div>
+                <button className="btn btn-success" style={{ width:'100%', marginTop:'1.5rem' }} onClick={criarContagem} disabled={criando}>{criando ? '⏳ Criando...' : '📋 Criar Contagem do Dia (' + qtdSelecionados + ' itens)'}</button>
+            </div>
+            {todasPendentes.length > 0 && (
+                <div className="card" style={{ border:'1px solid var(--warning)' }}>
+                    <h2 className="card-title">🟡 Contagens Aguardando a Loja ({todasPendentes.length})</h2>
+                    {todasPendentes.map(d => (
+                        <div key={d.storeId + '-' + d.id} className="item-card">
+                            <div className="item-info">
+                                <div className="item-description">{d.storeName}</div>
+                                <div className="item-condition">{parseDateKey(d.date) ? parseDateKey(d.date).toLocaleDateString('pt-BR') : d.date} • {(d.itens || []).length} itens</div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+            <div className="card">
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem', flexWrap:'wrap', gap:'1rem' }}>
+                    <h2 className="card-title" style={{ margin:0 }}>📊 Dashboard de Divergência de Estoque</h2>
+                    <button className="btn btn-success btn-small" onClick={handleExportDashboard}>📥 Excel</button>
+                </div>
+                <div className="form-row">
+                    <div className="form-group"><label className="form-label">Mês</label><input type="month" className="form-input" value={refMonth} onChange={e => setRefMonth(e.target.value)} /></div>
+                    <div className="form-group">
+                        <label className="form-label">Loja</label>
+                        <select className="form-select" value={lojaFiltroDash} onChange={e => setLojaFiltroDash(e.target.value)}>
+                            <option value="all">🏪 Todas as Lojas</option>
+                            {STORES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                    </div>
+                </div>
+                {piorLoja && piorLoja.pctDivergencia > 0 && (
+                    <div style={{ padding:'1rem', background:'rgba(239,71,111,0.1)', border:'1px solid var(--danger)', borderRadius:'12px', marginBottom:'1.5rem' }}>
+                        ⚠️ <strong>{piorLoja.nome}</strong> é a loja com maior divergência no período: <strong style={{ color:'var(--danger)' }}>{piorLoja.pctDivergencia.toFixed(1)}%</strong> dos itens contados ({piorLoja.itensDivergentes} de {piorLoja.itensContados}).
+                    </div>
+                )}
+                {divergenciaPorLoja.length > 0 ? divergenciaPorLoja.map((l, i) => (
+                    <div key={l.nome} style={{ marginBottom:'1.25rem' }}>
+                        <div style={{ display:'flex', justifyContent:'space-between', marginBottom:'0.35rem', fontSize:'0.95rem', flexWrap:'wrap', gap:'0.5rem' }}>
+                            <span style={{ fontWeight: i === 0 ? '800' : '600' }}>{i === 0 ? '🔴 ' : ''}{l.nome}</span>
+                            <span>
+                                <strong style={{ color: l.pctDivergencia > 20 ? 'var(--danger)' : l.pctDivergencia > 5 ? 'var(--warning)' : 'var(--success)' }}>{l.pctDivergencia.toFixed(1)}% divergência</strong>
+                                <span style={{ color:'var(--text-secondary)', marginLeft:'0.5rem' }}>({l.itensDivergentes}/{l.itensContados} itens • {l.contagens} contagem(ns))</span>
+                            </span>
+                        </div>
+                        <div style={{ background:'var(--bg-dark)', borderRadius:'8px', height:'20px', overflow:'hidden' }}>
+                            <div style={{ width: ((l.pctDivergencia / maxDivergencia) * 100) + '%', height:'100%', background: l.pctDivergencia > 20 ? 'var(--danger)' : l.pctDivergencia > 5 ? 'var(--warning)' : 'var(--success)', borderRadius:'8px', transition:'width 0.5s ease' }}></div>
+                        </div>
+                        <div style={{ fontSize:'0.78rem', color:'var(--text-secondary)', marginTop:'0.2rem' }}>Saldo líquido do ajuste: {l.somaAjusteLiquido > 0 ? '+' : ''}{l.somaAjusteLiquido} unid. • Soma absoluta: {l.somaAjusteAbs} unid.</div>
+                    </div>
+                )) : (
+                    <div style={{ color:'var(--text-secondary)' }}>Nenhuma contagem concluída neste período ainda.</div>
+                )}
+            </div>
         </div>
     );
 }
