@@ -370,6 +370,10 @@
         await ref.set({ ...dados, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
     }
 
+    async function deletarInventarioDiario(storeId, docId) {
+        await db.collection("stores").doc(storeId).collection("inventarios_diarios").doc(docId).delete();
+    }
+
     function ouvirInventariosDiarios(storeId, callback) {
         const ref = db.collection("stores").doc(storeId).collection("inventarios_diarios").orderBy("date", "desc");
         return ref.onSnapshot(function(snap) {
@@ -804,7 +808,7 @@
         salvarTroca, atualizarStatus, atualizarTroca, deletarTroca,
         ouvirTrocas, ouvirTodasLojas, salvarEstoque, ouvirEstoque, getEstoque,
         seedInventoryAllStores, salvarCatalogoMaster, ouvirCatalogoMaster, sincronizarCatalogoLojas,
-        salvarInventarioDiario, ouvirInventariosDiarios, ouvirTodosInventariosDiarios, ouvirTodosEstoques,
+        salvarInventarioDiario, deletarInventarioDiario, ouvirInventariosDiarios, ouvirTodosInventariosDiarios, ouvirTodosEstoques,
         salvarFechamento, getFechamento, ouvirTodosFechamentos, ouvirFechamentosLoja,
         salvarMetas, ouvirMetas, salvarMetasVendedoras, ouvirMetasVendedoras,
         salvarVenda, deletarVenda, atualizarVenda, ouvirVendas, ouvirTodasVendas,
@@ -2336,6 +2340,7 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, showToast
     const [criando, setCriando] = useState(false);
     const [refMonth, setRefMonth] = useState(todayStr.slice(0, 7));
     const [lojaFiltroDash, setLojaFiltroDash] = useState('all');
+    const [editandoDoc, setEditandoDoc] = useState(null); // contagem pendente em edicao
 
     const itensLoja = storeEstoques[lojaSel] || [];
     const itensFiltrados = itensLoja.filter(i => {
@@ -2352,20 +2357,43 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, showToast
     };
     const limparSelecao = () => setSelecionados({});
 
+    const itensSelecionadosLista = itensLoja.filter(i => selecionados[i.id]);
+
     const criarContagem = async () => {
-        const itensSel = itensLoja.filter(i => selecionados[i.id]);
+        const itensSel = itensSelecionadosLista;
         if (itensSel.length === 0) { showToast('Selecione ao menos um item para contar', 'error'); return; }
         setCriando(true);
         try {
             const storeName = (STORES.find(s => s.id === lojaSel) || {}).name;
             const itens = itensSel.map(i => ({ id: i.id, product: i.product, barcode: i.barcode || '', group: i.group || '', estoqueSistema: num(i.quantity), contado: null, ajuste: null }));
-            await window.TrocaDB.salvarInventarioDiario(lojaSel, dataContagem, {
-                date: dataContagem, storeName, criadoPor: 'Administrador', itens, status: 'pendente', criadoEm: new Date().toLocaleString('pt-BR')
+            const docId = editandoDoc ? editandoDoc.id : dataContagem;
+            await window.TrocaDB.salvarInventarioDiario(lojaSel, docId, {
+                date: dataContagem, storeName, criadoPor: 'Administrador', itens, status: 'pendente',
+                criadoEm: editandoDoc ? editandoDoc.criadoEm : new Date().toLocaleString('pt-BR'),
+                editadoEm: editandoDoc ? new Date().toLocaleString('pt-BR') : null
             });
-            showToast('Contagem do dia criada para ' + storeName + '! A loja já pode iniciar. 📋');
-            setSelecionados({});
-        } catch(e) { console.error(e); showToast('Erro ao criar contagem', 'error'); }
+            showToast(editandoDoc ? 'Contagem atualizada! ✏️' : 'Contagem do dia criada para ' + storeName + '! A loja já pode iniciar. 📋');
+            setSelecionados({}); setEditandoDoc(null); setBusca('');
+        } catch(e) { console.error(e); showToast('Erro ao salvar contagem', 'error'); }
         finally { setCriando(false); }
+    };
+
+    const editarContagem = (doc) => {
+        setLojaSel(doc.storeId);
+        setDataContagem(doc.date);
+        setEditandoDoc(doc);
+        const sel = {};
+        (doc.itens || []).forEach(i => { sel[i.id] = true; });
+        setSelecionados(sel);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const cancelarEdicao = () => { setEditandoDoc(null); setSelecionados({}); };
+
+    const excluirContagem = async (doc) => {
+        if (!confirm('Excluir a contagem de ' + doc.storeName + ' do dia ' + (parseDateKey(doc.date) ? parseDateKey(doc.date).toLocaleDateString('pt-BR') : doc.date) + '?')) return;
+        try { await window.TrocaDB.deletarInventarioDiario(doc.storeId, doc.id); showToast('Contagem excluída'); }
+        catch(e) { console.error(e); showToast('Erro ao excluir', 'error'); }
     };
 
     // Dashboard de divergencia (todas as contagens concluidas, filtravel por mes/loja)
@@ -2417,13 +2445,14 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, showToast
                 <h1 className="page-title">📋 Inventário Diário</h1>
                 <p className="page-subtitle">Escolha os itens que cada loja vai contar hoje e acompanhe a divergência de estoque</p>
             </div>
-            <div className="card">
-                <h2 className="card-title">➕ Criar Contagem do Dia</h2>
+            <div className="card" style={{ border: editandoDoc ? '2px solid var(--primary)' : undefined }}>
+                <h2 className="card-title">{editandoDoc ? '✏️ Editando Contagem — ' + editandoDoc.storeName : '➕ Criar Contagem do Dia'}</h2>
+                {editandoDoc && <div style={{ padding:'0.75rem 1rem', background:'var(--bg-dark)', borderRadius:'10px', marginBottom:'1.25rem', fontSize:'0.9rem' }}>Você está editando uma contagem pendente. Marque/desmarque itens e salve — ou <button className="btn btn-outline btn-small" style={{ marginLeft:'0.5rem' }} onClick={cancelarEdicao}>Cancelar edição</button></div>}
                 <div style={{ marginBottom:'1.25rem' }}>
                     <label className="form-label">🏪 Escolha a Loja</label>
                     <div className="admin-cal-filter-bar" style={{ marginBottom:0 }}>
                         {STORES.map(s => (
-                            <button key={s.id} className={`admin-cal-filter-btn ${lojaSel === s.id ? 'active' : ''}`} onClick={() => { setLojaSel(s.id); setSelecionados({}); }}>{s.name}</button>
+                            <button key={s.id} className={`admin-cal-filter-btn ${lojaSel === s.id ? 'active' : ''}`} onClick={() => { if (!editandoDoc) { setLojaSel(s.id); setSelecionados({}); } }} disabled={!!editandoDoc && editandoDoc.storeId !== s.id} style={{ opacity: (editandoDoc && editandoDoc.storeId !== s.id) ? 0.4 : 1 }}>{s.name}</button>
                         ))}
                     </div>
                 </div>
@@ -2452,16 +2481,37 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, showToast
                     </table>
                     {itensFiltrados.length > 400 && <div style={{ padding:'1rem', color:'var(--text-secondary)', fontSize:'0.85rem' }}>Mostrando 400 de {itensFiltrados.length} — use a busca para refinar.</div>}
                 </div>
-                <button className="btn btn-success" style={{ width:'100%', marginTop:'1.5rem' }} onClick={criarContagem} disabled={criando}>{criando ? '⏳ Criando...' : '📋 Criar Contagem do Dia (' + qtdSelecionados + ' itens)'}</button>
+                {itensSelecionadosLista.length > 0 && (
+                    <div style={{ marginTop:'1.5rem', padding:'1.25rem', background:'var(--bg-dark)', borderRadius:'12px', border:'1px solid var(--primary)' }}>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem', flexWrap:'wrap', gap:'0.5rem' }}>
+                            <strong>✅ {itensSelecionadosLista.length} produto(s) selecionado(s) para a contagem</strong>
+                            <button className="btn btn-outline btn-small" onClick={limparSelecao}>Remover todos</button>
+                        </div>
+                        <div style={{ display:'flex', flexWrap:'wrap', gap:'0.5rem' }}>
+                            {itensSelecionadosLista.map(i => (
+                                <span key={i.id} className="badge badge-confirmed" style={{ display:'inline-flex', alignItems:'center', gap:'0.5rem' }}>
+                                    {i.product}
+                                    <button onClick={() => toggleItem(i.id)} style={{ background:'none', border:'none', color:'var(--danger)', cursor:'pointer', fontSize:'1rem', padding:0, lineHeight:1 }} title="Remover da seleção">×</button>
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                )}
+                <button className="btn btn-success" style={{ width:'100%', marginTop:'1.5rem' }} onClick={criarContagem} disabled={criando}>{criando ? '⏳ Salvando...' : editandoDoc ? '💾 Salvar Alterações (' + qtdSelecionados + ' itens)' : '📋 Criar Contagem do Dia (' + qtdSelecionados + ' itens)'}</button>
             </div>
             {todasPendentes.length > 0 && (
                 <div className="card" style={{ border:'1px solid var(--warning)' }}>
                     <h2 className="card-title">🟡 Contagens Aguardando a Loja ({todasPendentes.length})</h2>
+                    <p style={{ color:'var(--text-secondary)', fontSize:'0.9rem', marginTop:'-0.75rem', marginBottom:'1.5rem' }}>Enquanto a loja não finaliza, você pode editar os itens ou excluir a contagem.</p>
                     {todasPendentes.map(d => (
-                        <div key={d.storeId + '-' + d.id} className="item-card">
+                        <div key={d.storeId + '-' + d.id} className="item-card" style={{ flexWrap:'wrap', gap:'1rem' }}>
                             <div className="item-info">
                                 <div className="item-description">{d.storeName}</div>
-                                <div className="item-condition">{parseDateKey(d.date) ? parseDateKey(d.date).toLocaleDateString('pt-BR') : d.date} • {(d.itens || []).length} itens</div>
+                                <div className="item-condition">{parseDateKey(d.date) ? parseDateKey(d.date).toLocaleDateString('pt-BR') : d.date} • {(d.itens || []).length} itens{d.editadoEm ? ' • editada' : ''}</div>
+                            </div>
+                            <div style={{ display:'flex', gap:'0.5rem' }}>
+                                <button className="btn btn-primary btn-small" onClick={() => editarContagem(d)}>✏️ Editar</button>
+                                <button className="btn btn-danger btn-small" onClick={() => excluirContagem(d)}>🗑️ Excluir</button>
                             </div>
                         </div>
                     ))}
