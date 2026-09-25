@@ -359,6 +359,42 @@
         return results;
     }
 
+    // ===== INVENTARIO DIARIO (contagem de estoque: admin escolhe, loja conta) =====
+    async function salvarInventarioDiario(storeId, docId, dados) {
+        const ref = db.collection("stores").doc(storeId).collection("inventarios_diarios").doc(docId);
+        await ref.set({ ...dados, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+    }
+
+    function ouvirInventariosDiarios(storeId, callback) {
+        const ref = db.collection("stores").doc(storeId).collection("inventarios_diarios").orderBy("date", "desc");
+        return ref.onSnapshot(function(snap) {
+            callback(snap.docs.map(function(d) { return { ...d.data(), id: d.id }; }));
+        }, function(err) { console.error("Firebase inventarios diarios erro:", err); callback([]); });
+    }
+
+    function ouvirTodosInventariosDiarios(lojas, callback) {
+        const unsubscribes = lojas.map(function(loja) {
+            const ref = db.collection("stores").doc(loja.id).collection("inventarios_diarios").orderBy("date", "desc");
+            return ref.onSnapshot(function(snap) {
+                const docs = snap.docs.map(function(d) {
+                    return { ...d.data(), id: d.id, storeId: loja.id, storeName: loja.name };
+                });
+                callback(loja.id, docs);
+            }, function(err) { console.error("Firebase inventarios diarios erro " + loja.id + ":", err); });
+        });
+        return function() { unsubscribes.forEach(function(u) { u && u(); }); };
+    }
+
+    function ouvirTodosEstoques(lojas, initialInventory, callback) {
+        const unsubscribes = lojas.map(function(loja) {
+            const ref = db.collection("stores").doc(loja.id).collection("config").doc("inventory");
+            return ref.onSnapshot(function(snap) {
+                callback(loja.id, snap.exists ? (snap.data().items || initialInventory) : initialInventory);
+            }, function() { callback(loja.id, initialInventory); });
+        });
+        return function() { unsubscribes.forEach(function(u) { u && u(); }); };
+    }
+
     // ===== CATALOGO MESTRE (gerenciado pelo Admin: adicionar, editar, excluir) =====
     async function salvarCatalogoMaster(items) {
         const ref = db.collection("config").doc("catalog_master");
@@ -2370,15 +2406,17 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, showToast
             </div>
             <div className="card">
                 <h2 className="card-title">➕ Criar Contagem do Dia</h2>
-                <div className="form-row">
-                    <div className="form-group">
-                        <label className="form-label">Loja</label>
-                        <select className="form-select" value={lojaSel} onChange={e => { setLojaSel(e.target.value); setSelecionados({}); }}>
-                            {STORES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                        </select>
+                <div style={{ marginBottom:'1.25rem' }}>
+                    <label className="form-label">🏪 Escolha a Loja</label>
+                    <div className="admin-cal-filter-bar" style={{ marginBottom:0 }}>
+                        {STORES.map(s => (
+                            <button key={s.id} className={`admin-cal-filter-btn ${lojaSel === s.id ? 'active' : ''}`} onClick={() => { setLojaSel(s.id); setSelecionados({}); }}>{s.name}</button>
+                        ))}
                     </div>
+                </div>
+                <div className="form-row">
                     <div className="form-group"><label className="form-label">Data da Contagem</label><input type="date" className="form-input" value={dataContagem} onChange={e => setDataContagem(e.target.value)} /></div>
-                    <div className="form-group"><label className="form-label">Buscar Item</label><input className="form-input" value={busca} onChange={e => setBusca(e.target.value)} placeholder="Nome, grupo ou código..." /></div>
+                    <div className="form-group"><label className="form-label">🔍 Buscar Produto pelo Nome</label><input className="form-input" value={busca} onChange={e => setBusca(e.target.value)} placeholder="Digite o nome, grupo ou código de barras..." autoFocus /></div>
                 </div>
                 <div style={{ display:'flex', gap:'0.75rem', flexWrap:'wrap', marginBottom:'1.25rem' }}>
                     <button className="btn btn-outline btn-small" onClick={selecionarTodosFiltrados}>☑️ Selecionar todos os filtrados ({itensFiltrados.length})</button>
