@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TrocaFácil - Sistema de Gestão de Trocas</title>
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone@7.22.5/babel.min.js"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.22.5/babel.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
     <!-- ✅ FIREBASE COMPAT (sem ESM/import, compatível com Babel) -->
@@ -259,10 +259,15 @@
     let db;
     try {
         if (typeof firebase === "undefined") {
-            throw new Error("A biblioteca Firebase não carregou. Verifique a conexão ou se o navegador bloqueia gstatic.com.");
+            throw new Error("A biblioteca Firebase não carregou (firebase-app-compat.js). Possível bloqueio de gstatic.com pela rede/antivírus, ou a página abriu antes dos scripts terminarem de baixar. Recarregue a página (Ctrl+Shift+R).");
+        }
+        if (typeof firebase.firestore === "undefined") {
+            throw new Error("O Firestore não carregou (firebase-firestore-compat.js). Recarregue a página; se persistir, a rede está bloqueando gstatic.com.");
         }
         firebase.initializeApp(firebaseConfig);
         db = firebase.firestore();
+        // Habilita cache offline: se cair a conexao, continua funcionando com o ultimo dado sincronizado
+        try { db.enablePersistence({ synchronizeTabs: true }).catch(function(){}); } catch(e) {}
 
     async function salvarTroca(storeId, troca) {
         const { photos, ...trocaSemFotos } = troca;
@@ -1185,6 +1190,7 @@ function AdminView({ onLogout, showToast }) {
     const [selectedExchange, setSelectedExchange] = useState(null);
     const [loading, setLoading] = useState(true);
     const [adminPage, setAdminPage] = useState('dashboard');
+    const [showDashCal, setShowDashCal] = useState(false);
     const unsubRef = useRef(null);
 
     useEffect(() => {
@@ -1433,6 +1439,13 @@ function AdminView({ onLogout, showToast }) {
                             <div className="stat-card"><span className="stat-icon">📊</span><span className="stat-value">{allExchanges.length}</span><span className="stat-label">Total de Trocas</span></div>
                             <div className="stat-card"><span className="stat-icon">⏳</span><span className="stat-value">{allExchanges.filter(e => e.status === 'pending').length}</span><span className="stat-label">Pendentes</span></div>
                             <div className="stat-card"><span className="stat-icon">✅</span><span className="stat-value">{allExchanges.filter(e => e.status === 'confirmed').length}</span><span className="stat-label">Confirmadas</span></div>
+                        </div>
+                        <div className="card">
+                            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:'1rem', cursor:'pointer' }} onClick={() => setShowDashCal(v => !v)}>
+                                <h2 className="card-title" style={{ margin:0 }}>🗓️ Calendário de Trocas</h2>
+                                <button className="btn btn-outline btn-small">{showDashCal ? '▲ Recolher' : '▼ Ver Calendário'}</button>
+                            </div>
+                            {showDashCal && <div style={{ marginTop:'1.5rem' }}><AdminGlobalCalendar allExchanges={allExchanges} storeExchanges={storeExchanges} /></div>}
                         </div>
                         <div className="card">
                             <h2 className="card-title">💰 Diferença Total Consolidada</h2>
@@ -7462,9 +7475,14 @@ function AdminSeedPage({ showToast }) {
 try {
     if (window.__FIREBASE_ERROR__) {
         document.getElementById('root').innerHTML =
-            '<div style="padding:3rem;font-family:sans-serif;color:#fff;text-align:center;max-width:600px;margin:0 auto;">' +
-            '<h2>⚠️ Firebase não conectou</h2><p style="color:#A0AEC0;">' + window.__FIREBASE_ERROR__ + '</p>' +
-            '<p style="color:#718096;font-size:0.9rem;margin-top:1rem;">Possíveis causas: sem internet, navegador bloqueando gstatic.com, ou extensão de bloqueio ativa.</p></div>';
+            '<div style="padding:3rem;font-family:sans-serif;color:#fff;text-align:center;max-width:640px;margin:0 auto;">' +
+            '<h2>⚠️ Firebase não conectou</h2><p style="color:#A0AEC0;margin:1rem 0;">' + window.__FIREBASE_ERROR__ + '</p>' +
+            '<button onclick="location.reload()" style="padding:0.9rem 2rem;background:#FF6B35;color:#fff;border:none;border-radius:12px;font-weight:700;cursor:pointer;font-size:1rem;">🔄 Recarregar Página</button>' +
+            '<div style="color:#718096;font-size:0.85rem;margin-top:2rem;text-align:left;background:#1A2332;padding:1.25rem;border-radius:12px;">' +
+            '<strong style="color:#A0AEC0;">Se o erro continuar no GitHub Pages, verifique:</strong><br><br>' +
+            '1. <strong>Regras do Firestore</strong> — no Firebase Console → Firestore → Regras, precisa permitir leitura/escrita (ex: allow read, write: if true;).<br><br>' +
+            '2. <strong>Domínio autorizado</strong> — Firebase Console → Authentication → Settings → Domínios autorizados: adicione seu domínio do GitHub (ex: seuusuario.github.io).<br><br>' +
+            '3. <strong>Rede/antivírus</strong> — algum firewall pode estar bloqueando googleapis.com ou gstatic.com.</div></div>';
     } else {
         ReactDOM.render(<App />, document.getElementById('root'));
     }
