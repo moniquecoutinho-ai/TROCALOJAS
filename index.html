@@ -2442,6 +2442,29 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, showToast
 
     const todasPendentes = useMemo(() => Object.values(storeInventariosDiarios || {}).flat().filter(d => d.status === 'pendente'), [storeInventariosDiarios]);
     const aguardandoAjuste = useMemo(() => Object.values(storeInventariosDiarios || {}).flat().filter(d => d.status === 'aguardando_ajuste').sort((a, b) => (a.date > b.date ? 1 : -1)), [storeInventariosDiarios]);
+    const [buscaContagens, setBuscaContagens] = useState('');
+    const [mesContagens, setMesContagens] = useState(todayStr.slice(0, 7));
+    const [lojaContagens, setLojaContagens] = useState('all');
+    const todasContagensComContagem = useMemo(() => {
+        return Object.values(storeInventariosDiarios || {}).flat()
+            .filter(d => (d.status === 'aguardando_ajuste' || d.status === 'concluido') && d.date && d.date.slice(0, 7) === mesContagens && (lojaContagens === 'all' || d.storeId === lojaContagens))
+            .filter(d => {
+                const s = buscaContagens.trim().toLowerCase();
+                return !s || (d.storeName || '').toLowerCase().includes(s) || (d.itens || []).some(i => (i.product || '').toLowerCase().includes(s));
+            })
+            .sort((a, b) => (b.date > a.date ? 1 : -1));
+    }, [storeInventariosDiarios, mesContagens, lojaContagens, buscaContagens]);
+
+    const devolverRapido = async (doc) => {
+        if (!confirm('Devolver a contagem de ' + doc.storeName + ' (' + (parseDateKey(doc.date) ? parseDateKey(doc.date).toLocaleDateString('pt-BR') : doc.date) + ') para a loja recontar?')) return;
+        try {
+            const itensLimpos = (doc.itens || []).map(i => ({ ...i, contado: null, ajuste: null, ajustado: false }));
+            await window.TrocaDB.salvarInventarioDiario(doc.storeId, doc.id, {
+                itens: itensLimpos, status: 'pendente', finalizadoEm: null, devolvidoEm: new Date().toLocaleString('pt-BR')
+            });
+            showToast('Contagem devolvida para ' + doc.storeName + ' recontar ↩️');
+        } catch(e) { console.error(e); showToast('Erro ao devolver', 'error'); }
+    };
 
     const abrirAjuste = (doc) => {
         setAjustandoDoc(doc);
@@ -2457,17 +2480,21 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, showToast
         setSalvandoAjuste(true);
         try {
             const doc = ajustandoDoc;
+            const estoqueLoja = storeEstoques[doc.storeId] || [];
+            const estoqueAtualDe = (item) => {
+                const prod = estoqueLoja.find(p => p.id === item.id || ((p.product || '').trim().toUpperCase() === (item.product || '').trim().toUpperCase()));
+                return prod ? num(prod.quantity) : num(item.estoqueSistema);
+            };
             const itensFinal = (doc.itens || []).map(i => {
                 const contadoFinal = parseInt(ajusteValores[i.id]);
                 const contado = isNaN(contadoFinal) ? num(i.contado) : contadoFinal;
-                return { ...i, contado, ajuste: contado - num(i.estoqueSistema), ajustado: true };
+                return { ...i, contado, estoqueAnterior: estoqueAtualDe(i), ajuste: contado - estoqueAtualDe(i), ajustado: true };
             });
             // Marca a contagem como concluida (ajustada pelo Admin)
             await window.TrocaDB.salvarInventarioDiario(doc.storeId, doc.id, {
                 itens: itensFinal, status: 'concluido', ajustadoPor: 'Administrador', ajustadoEm: new Date().toLocaleString('pt-BR')
             });
             // Aplica os valores ajustados no ESTOQUE REAL da loja (so o Admin faz isso)
-            const estoqueLoja = storeEstoques[doc.storeId] || [];
             const novoEstoque = estoqueLoja.map(prod => {
                 const match = itensFinal.find(i => i.id === prod.id || ((i.product || '').trim().toUpperCase() === (prod.product || '').trim().toUpperCase()));
                 return match ? { ...prod, quantity: match.contado } : prod;
@@ -2477,6 +2504,22 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, showToast
             showToast('Estoque de ' + doc.storeName + ' ajustado! ' + ajustados + ' item(ns) alterado(s) ✅');
             setAjustandoDoc(null);
         } catch(e) { console.error(e); showToast('Erro ao ajustar estoque', 'error'); }
+        finally { setSalvandoAjuste(false); }
+    };
+
+    // Admin devolve a contagem para a loja recontar (quando a loja contou errado)
+    const reabrirParaLoja = async () => {
+        if (!confirm('Devolver esta contagem para ' + ajustandoDoc.storeName + ' recontar?\n\nA loja poderá refazer a contagem. O estoque NÃO será alterado agora.')) return;
+        setSalvandoAjuste(true);
+        try {
+            const itensLimpos = (ajustandoDoc.itens || []).map(i => ({ ...i, contado: null, ajuste: null, ajustado: false }));
+            await window.TrocaDB.salvarInventarioDiario(ajustandoDoc.storeId, ajustandoDoc.id, {
+                itens: itensLimpos, status: 'pendente', finalizadoEm: null,
+                devolvidoEm: new Date().toLocaleString('pt-BR')
+            });
+            showToast('Contagem devolvida para ' + ajustandoDoc.storeName + ' recontar ↩️');
+            setAjustandoDoc(null);
+        } catch(e) { console.error(e); showToast('Erro ao devolver contagem', 'error'); }
         finally { setSalvandoAjuste(false); }
     };
 
@@ -2503,16 +2546,22 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, showToast
     };
 
     if (ajustandoDoc) {
+        // Estoque REAL atual da loja (nao o congelado da contagem) — o ajuste sempre parte do que esta hoje no sistema
+        const estoqueAtualLoja = storeEstoques[ajustandoDoc.storeId] || [];
+        const estoqueAtualDe = (item) => {
+            const prod = estoqueAtualLoja.find(p => p.id === item.id || ((p.product || '').trim().toUpperCase() === (item.product || '').trim().toUpperCase()));
+            return prod ? num(prod.quantity) : num(item.estoqueSistema);
+        };
         const itensDoc = (ajustandoDoc.itens || []).filter(i => {
             const s = buscaAjuste.toLowerCase();
             const matchBusca = !s || (i.product || '').toLowerCase().includes(s) || (i.barcode || '').toLowerCase().includes(s);
             const contadoAtual = ajusteValores[i.id] !== undefined && ajusteValores[i.id] !== '' ? parseInt(ajusteValores[i.id]) : num(i.contado);
-            const div = contadoAtual - num(i.estoqueSistema);
+            const div = contadoAtual - estoqueAtualDe(i);
             return matchBusca && (!soDivergentes || div !== 0);
         });
         const totalDivergentes = (ajustandoDoc.itens || []).filter(i => {
             const contadoAtual = ajusteValores[i.id] !== undefined && ajusteValores[i.id] !== '' ? parseInt(ajusteValores[i.id]) : num(i.contado);
-            return (contadoAtual - num(i.estoqueSistema)) !== 0;
+            return (contadoAtual - estoqueAtualDe(i)) !== 0;
         }).length;
         return (
             <div>
@@ -2523,7 +2572,10 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, showToast
                 <div className="card">
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:'1rem', marginBottom:'1.25rem' }}>
                         <span style={{ color:'var(--text-secondary)' }}>{totalDivergentes} de {(ajustandoDoc.itens || []).length} itens com divergência</span>
-                        <button className="btn btn-outline btn-small" onClick={() => setAjustandoDoc(null)}>← Voltar sem ajustar</button>
+                        <div style={{ display:'flex', gap:'0.5rem', flexWrap:'wrap' }}>
+                            <button className="btn btn-warning btn-small" onClick={reabrirParaLoja} disabled={salvandoAjuste}>↩️ Devolver p/ Loja Recontar</button>
+                            <button className="btn btn-outline btn-small" onClick={() => setAjustandoDoc(null)}>← Voltar sem ajustar</button>
+                        </div>
                     </div>
                     <div className="form-row">
                         <div className="form-group"><label className="form-label">🔍 Buscar produto</label><input className="form-input" value={buscaAjuste} onChange={e => setBuscaAjuste(e.target.value)} placeholder="Nome ou código..." /></div>
@@ -2532,31 +2584,35 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, showToast
                         </div>
                     </div>
                     <div style={{ padding:'0.75rem 1rem', background:'var(--bg-dark)', borderRadius:'10px', marginBottom:'1.25rem', fontSize:'0.88rem', color:'var(--text-secondary)' }}>
-                        A coluna <strong>"Contagem Loja"</strong> é o que a loja contou. Você pode corrigir na coluna <strong>"Ajuste Final"</strong> se necessário — esse é o valor que vai para o estoque real.
+                        <strong>Estoque Atual</strong> = o que está hoje no sistema. <strong>Contagem Loja</strong> = o que a loja contou fisicamente. Na coluna <strong>"Ajuste Final"</strong> você define o valor correto que vai para o estoque (por padrão vem a contagem da loja, mas você pode corrigir). A coluna <strong>Ajuste</strong> mostra quanto vai ser adicionado ou removido.
                     </div>
                     <div className="table-container">
                         <table className="table">
-                            <thead><tr><th>Produto</th><th>Código</th><th>Sistema</th><th>Contagem Loja</th><th>Ajuste Final</th><th>Diferença</th></tr></thead>
+                            <thead><tr><th>Produto</th><th>Código</th><th>Estoque Atual</th><th>Contagem Loja</th><th>Ajuste Final</th><th>Ajuste</th></tr></thead>
                             <tbody>
                                 {itensDoc.map(i => {
+                                    const estoqueAtual = estoqueAtualDe(i);
                                     const contadoFinal = ajusteValores[i.id] !== undefined && ajusteValores[i.id] !== '' ? parseInt(ajusteValores[i.id]) : null;
                                     const base = contadoFinal !== null ? contadoFinal : num(i.contado);
-                                    const dif = base - num(i.estoqueSistema);
+                                    const dif = base - estoqueAtual;
                                     return (
                                         <tr key={i.id} style={{ background: dif !== 0 ? 'rgba(239,71,111,0.06)' : undefined }}>
                                             <td style={{ fontWeight:'600' }}>{i.product}</td>
                                             <td style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>{i.barcode || '-'}</td>
-                                            <td>{num(i.estoqueSistema)}</td>
-                                            <td style={{ fontWeight:'700' }}>{num(i.contado)}</td>
-                                            <td><input type="number" min="0" className="form-input" style={{ width:'100px' }} value={ajusteValores[i.id] ?? ''} onChange={e => setAjusteValores(p => ({ ...p, [i.id]: e.target.value }))} /></td>
-                                            <td style={{ fontWeight:'700', color: dif === 0 ? 'var(--success)' : dif > 0 ? 'var(--primary)' : 'var(--danger)' }}>{dif === 0 ? '✅ 0' : (dif > 0 ? '+' : '') + dif}</td>
+                                            <td style={{ fontWeight:'700' }}>{estoqueAtual}</td>
+                                            <td style={{ fontWeight:'700', color:'var(--accent)' }}>{num(i.contado)}</td>
+                                            <td><input type="number" className="form-input" style={{ width:'100px' }} value={ajusteValores[i.id] ?? ''} onChange={e => setAjusteValores(p => ({ ...p, [i.id]: e.target.value }))} /></td>
+                                            <td style={{ fontWeight:'700', color: dif === 0 ? 'var(--success)' : dif > 0 ? 'var(--primary)' : 'var(--danger)' }}>{dif === 0 ? '✅ bate' : dif > 0 ? '➕ adicionar +' + dif : '➖ remover ' + dif}</td>
                                         </tr>
                                     );
                                 })}
                             </tbody>
                         </table>
                     </div>
-                    <button className="btn btn-success" style={{ width:'100%', marginTop:'1.5rem' }} onClick={aplicarAjuste} disabled={salvandoAjuste}>{salvandoAjuste ? '⏳ Ajustando estoque...' : '✅ Confirmar Ajuste e Aplicar no Estoque da Loja'}</button>
+                    <div style={{ display:'flex', gap:'1rem', flexWrap:'wrap', marginTop:'1.5rem' }}>
+                        <button className="btn btn-warning" style={{ flex:1, minWidth:'220px' }} onClick={reabrirParaLoja} disabled={salvandoAjuste}>↩️ Devolver p/ Loja Recontar</button>
+                        <button className="btn btn-success" style={{ flex:2, minWidth:'260px' }} onClick={aplicarAjuste} disabled={salvandoAjuste}>{salvandoAjuste ? '⏳ Ajustando estoque...' : '✅ Confirmar Ajuste e Aplicar no Estoque'}</button>
+                    </div>
                 </div>
             </div>
         );
@@ -2580,12 +2636,59 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, showToast
                                     <div className="item-description">{d.storeName}</div>
                                     <div className="item-condition">{parseDateKey(d.date) ? parseDateKey(d.date).toLocaleDateString('pt-BR') : d.date} • {(d.itens || []).length} itens • <strong style={{ color: divergentes > 0 ? 'var(--danger)' : 'var(--success)' }}>{divergentes} divergente(s)</strong>{d.finalizadoEm ? ' • enviada ' + d.finalizadoEm : ''}</div>
                                 </div>
-                                <button className="btn btn-primary btn-small" onClick={() => abrirAjuste(d)}>🔧 Abrir e Ajustar</button>
+                                <div style={{ display:'flex', gap:'0.5rem', flexWrap:'wrap' }}>
+                                    <button className="btn btn-primary btn-small" onClick={() => abrirAjuste(d)}>🔧 Abrir e Ajustar</button>
+                                    <button className="btn btn-warning btn-small" onClick={() => devolverRapido(d)}>↩️ Recontar</button>
+                                </div>
                             </div>
                         );
                     })}
                 </div>
             )}
+            <div className="card">
+                <h2 className="card-title">🔧 Ajustar Estoque das Contagens</h2>
+                <p style={{ color:'var(--text-secondary)', fontSize:'0.9rem', marginTop:'-0.75rem', marginBottom:'1.5rem' }}>Abra qualquer contagem e ajuste o estoque quando quiser — mesmo as já ajustadas podem ser reabertas e corrigidas.</p>
+                <div className="form-row">
+                    <div className="form-group"><label className="form-label">Mês</label><input type="month" className="form-input" value={mesContagens} onChange={e => setMesContagens(e.target.value)} /></div>
+                    <div className="form-group">
+                        <label className="form-label">Loja</label>
+                        <select className="form-select" value={lojaContagens} onChange={e => setLojaContagens(e.target.value)}>
+                            <option value="all">🏪 Todas as Lojas</option>
+                            {STORES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                    </div>
+                    <div className="form-group"><label className="form-label">Buscar</label><input className="form-input" value={buscaContagens} onChange={e => setBuscaContagens(e.target.value)} placeholder="Loja ou produto..." /></div>
+                </div>
+                {todasContagensComContagem.length > 0 ? (
+                    <div className="table-container">
+                        <table className="table">
+                            <thead><tr><th>Data</th><th>Loja</th><th>Itens</th><th>Divergentes</th><th>Status</th><th>Ação</th></tr></thead>
+                            <tbody>
+                                {todasContagensComContagem.map(d => {
+                                    const divergentes = (d.itens || []).filter(i => num(i.ajuste) !== 0).length;
+                                    return (
+                                        <tr key={d.storeId + '-' + d.id}>
+                                            <td>{parseDateKey(d.date) ? parseDateKey(d.date).toLocaleDateString('pt-BR') : d.date}</td>
+                                            <td style={{ fontWeight:'700' }}>{d.storeName}</td>
+                                            <td>{(d.itens || []).length}</td>
+                                            <td style={{ fontWeight:'700', color: divergentes > 0 ? 'var(--danger)' : 'var(--success)' }}>{divergentes}</td>
+                                            <td>{d.status === 'concluido' ? <span className="badge badge-confirmed">🟢 Ajustada</span> : <span className="badge badge-pending">🟡 Aguardando</span>}</td>
+                                            <td>
+                                                <div style={{ display:'flex', gap:'0.4rem', flexWrap:'wrap' }}>
+                                                    <button className="btn btn-primary btn-small" onClick={() => abrirAjuste(d)}>{d.status === 'concluido' ? '🔧 Reajustar' : '🔧 Ajustar'}</button>
+                                                    <button className="btn btn-warning btn-small" onClick={() => devolverRapido(d)} title="Devolver para a loja recontar">↩️</button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <div className="empty-state"><div className="empty-state-icon">📋</div><p>Nenhuma contagem enviada neste período</p></div>
+                )}
+            </div>
             <div className="card" style={{ border: editandoDoc ? '2px solid var(--primary)' : undefined }}>
                 <h2 className="card-title">{editandoDoc ? '✏️ Editando Contagem — ' + editandoDoc.storeName : '➕ Criar Contagem do Dia'}</h2>
                 {editandoDoc && <div style={{ padding:'0.75rem 1rem', background:'var(--bg-dark)', borderRadius:'10px', marginBottom:'1.25rem', fontSize:'0.9rem' }}>Você está editando uma contagem pendente. Marque/desmarque itens e salve — ou <button className="btn btn-outline btn-small" style={{ marginLeft:'0.5rem' }} onClick={cancelarEdicao}>Cancelar edição</button></div>}
