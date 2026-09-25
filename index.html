@@ -2377,7 +2377,8 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, showToast
     const [lojaFiltroDash, setLojaFiltroDash] = useState('all');
     const [editandoDoc, setEditandoDoc] = useState(null); // contagem pendente em edicao
     const [ajustandoDoc, setAjustandoDoc] = useState(null); // contagem enviada sendo ajustada pelo Admin
-    const [ajusteValores, setAjusteValores] = useState({}); // { itemId: contagemFinalAjustada }
+    const [sistemaValores, setSistemaValores] = useState({}); // { itemId: qtd que o Bruno enxerga no sistema }
+    const [confirmados, setConfirmados] = useState({}); // { itemId: true } — itens que o Bruno deu OK / ajustou
     const [buscaAjuste, setBuscaAjuste] = useState('');
     const [salvandoAjuste, setSalvandoAjuste] = useState(false);
     const [soDivergentes, setSoDivergentes] = useState(false);
@@ -2519,39 +2520,50 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, showToast
 
     const abrirAjuste = (doc) => {
         setAjustandoDoc(doc);
-        const v = {};
-        (doc.itens || []).forEach(i => { v[i.id] = i.contado != null ? String(i.contado) : String(num(i.estoqueSistema)); });
-        setAjusteValores(v);
+        const sv = {}, conf = {};
+        (doc.itens || []).forEach(i => {
+            // Se ja foi ajustado antes, traz o valor do sistema salvo; senao usa o historico da ultima contagem
+            if (i.sistemaQtd != null) { sv[i.id] = String(i.sistemaQtd); }
+            else {
+                const ref = ultimoAjusteProduto(doc.storeId, (i.product || '').trim().toUpperCase(), doc.id);
+                sv[i.id] = ref ? String(ref.valor) : '';
+            }
+            if (i.ajustado || i.confirmado) conf[i.id] = true;
+        });
+        setSistemaValores(sv);
+        setConfirmados(conf);
         setBuscaAjuste('');
         setSoDivergentes(false);
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
     const aplicarAjuste = async () => {
+        const doc = ajustandoDoc;
+        // Bruno precisa informar o estoque do sistema de todos os itens
+        const semSistema = (doc.itens || []).filter(i => sistemaValores[i.id] === '' || sistemaValores[i.id] === undefined);
+        if (semSistema.length > 0) { showToast('Informe o "Estoque Sistema" de todos os itens (' + semSistema.length + ' faltando)', 'error'); return; }
         setSalvandoAjuste(true);
         try {
-            const doc = ajustandoDoc;
-            // O valor "Ajuste Final" confirmado pelo Admin E o estoque correto (fonte da verdade).
-            // "ajuste" = variacao em relacao a ultima contagem ajustada daquele produto (historico).
+            // O que a loja contou (fisico) e a verdade final; o "ajuste" e quanto o sistema estava divergente.
+            // ajuste = fisico - sistema. Ex: sistema 20, contou 15 -> ajuste -5 (tirar 5 do sistema).
             const itensFinal = (doc.itens || []).map(i => {
-                const contadoFinal = parseInt(ajusteValores[i.id]);
-                const contado = isNaN(contadoFinal) ? num(i.contado) : contadoFinal;
-                const ref = ultimoAjusteProduto(doc.storeId, (i.product || '').trim().toUpperCase(), doc.id);
-                return { ...i, contado, contagemAnterior: ref ? ref.valor : null, ajuste: ref ? contado - ref.valor : 0, ajustado: true };
+                const sistemaQtd = parseInt(sistemaValores[i.id]) || 0;
+                const contado = num(i.contado); // o fisico contado pela loja
+                return { ...i, sistemaQtd, contado, ajuste: contado - sistemaQtd, ajustado: true, confirmado: true };
             });
-            // Grava a contagem ajustada — passa a ser o novo "estoque correto" desse produto no historico
             await window.TrocaDB.salvarInventarioDiario(doc.storeId, doc.id, {
                 itens: itensFinal, status: 'concluido', ajustadoPor: 'Administrador', ajustadoEm: new Date().toLocaleString('pt-BR')
             });
-            // Reflete tambem no estoque do produto (Estoque > catalogo da loja), para manter tudo alinhado
+            // O estoque correto passa a ser o FISICO contado pela loja
             const estoqueLoja = storeEstoques[doc.storeId] || [];
             const novoEstoque = estoqueLoja.map(prod => {
                 const match = itensFinal.find(i => i.id === prod.id || ((i.product || '').trim().toUpperCase() === (prod.product || '').trim().toUpperCase()));
                 return match ? { ...prod, quantity: match.contado } : prod;
             });
             await window.TrocaDB.salvarEstoque(doc.storeId, novoEstoque);
-            const alterados = itensFinal.filter(i => i.ajuste !== 0).length;
-            showToast('Contagem de ' + doc.storeName + ' ajustada! ' + alterados + ' item(ns) com variação ✅');
+            const ajustados = itensFinal.filter(i => i.ajuste !== 0).length;
+            const certos = itensFinal.length - ajustados;
+            showToast('Contagem de ' + doc.storeName + ' finalizada! ' + certos + ' bateram, ' + ajustados + ' ajustado(s) ✅');
             setAjustandoDoc(null);
         } catch(e) { console.error(e); showToast('Erro ao ajustar', 'error'); }
         finally { setSalvandoAjuste(false); }
@@ -2596,61 +2608,72 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, showToast
     };
 
     if (ajustandoDoc) {
-        // Referencia = ULTIMA contagem ajustada daquele produto (historico). Estoque parte de ZERO.
-        const refDe = (item) => ultimoAjusteProduto(ajustandoDoc.storeId, (item.product || '').trim().toUpperCase(), ajustandoDoc.id);
+        // Bruno digita o Estoque Sistema; compara com o fisico contado pela loja; divergencia = fisico - sistema
+        const divDe = (i) => {
+            const sis = sistemaValores[i.id] !== '' && sistemaValores[i.id] !== undefined ? parseInt(sistemaValores[i.id]) : null;
+            return sis === null ? null : num(i.contado) - sis;
+        };
         const itensDoc = (ajustandoDoc.itens || []).filter(i => {
             const s = buscaAjuste.toLowerCase();
             const matchBusca = !s || (i.product || '').toLowerCase().includes(s) || (i.barcode || '').toLowerCase().includes(s);
-            const contadoAtual = ajusteValores[i.id] !== undefined && ajusteValores[i.id] !== '' ? parseInt(ajusteValores[i.id]) : num(i.contado);
-            const ref = refDe(i);
-            const div = ref ? contadoAtual - ref.valor : null;
+            const div = divDe(i);
             return matchBusca && (!soDivergentes || (div !== null && div !== 0));
         });
-        const totalDivergentes = (ajustandoDoc.itens || []).filter(i => {
-            const contadoAtual = ajusteValores[i.id] !== undefined && ajusteValores[i.id] !== '' ? parseInt(ajusteValores[i.id]) : num(i.contado);
-            const ref = refDe(i);
-            return ref && (contadoAtual - ref.valor) !== 0;
-        }).length;
+        const totalDivergentes = (ajustandoDoc.itens || []).filter(i => { const d = divDe(i); return d !== null && d !== 0; }).length;
+        const totalCertos = (ajustandoDoc.itens || []).filter(i => divDe(i) === 0).length;
+        const totalPreenchidos = (ajustandoDoc.itens || []).filter(i => sistemaValores[i.id] !== '' && sistemaValores[i.id] !== undefined).length;
+        const ultimaData = (() => {
+            for (const it of (ajustandoDoc.itens || [])) {
+                const ref = ultimoAjusteProduto(ajustandoDoc.storeId, (it.product || '').trim().toUpperCase(), ajustandoDoc.id);
+                if (ref) return ref.data;
+            }
+            return null;
+        })();
         return (
             <div>
                 <div className="header">
-                    <h1 className="page-title">🔧 Ajuste de Estoque — {ajustandoDoc.storeName}</h1>
-                    <p className="page-subtitle">Contagem de {parseDateKey(ajustandoDoc.date) ? parseDateKey(ajustandoDoc.date).toLocaleDateString('pt-BR') : ajustandoDoc.date} • revise cada item e confirme para aplicar no estoque da loja</p>
+                    <h1 className="page-title">🔧 Conferência e Ajuste — {ajustandoDoc.storeName}</h1>
+                    <p className="page-subtitle">Contagem de {parseDateKey(ajustandoDoc.date) ? parseDateKey(ajustandoDoc.date).toLocaleDateString('pt-BR') : ajustandoDoc.date}{ultimaData ? ' • última contagem: ' + (parseDateKey(ultimaData) ? parseDateKey(ultimaData).toLocaleDateString('pt-BR') : ultimaData) : ' • primeira contagem destes itens'}</p>
                 </div>
                 <div className="card">
-                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:'1rem', marginBottom:'1.25rem' }}>
-                        <span style={{ color:'var(--text-secondary)' }}>{totalDivergentes} de {(ajustandoDoc.itens || []).length} itens com divergência</span>
-                        <div style={{ display:'flex', gap:'0.5rem', flexWrap:'wrap' }}>
-                            <button className="btn btn-warning btn-small" onClick={reabrirParaLoja} disabled={salvandoAjuste}>↩️ Devolver p/ Loja Recontar</button>
-                            <button className="btn btn-outline btn-small" onClick={() => setAjustandoDoc(null)}>← Voltar sem ajustar</button>
-                        </div>
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))', gap:'1rem', marginBottom:'1.25rem' }}>
+                        <div className="cal-summary-item"><span className="cal-summary-value" style={{ color:'var(--success)' }}>{totalCertos}</span><div className="cal-summary-label">✅ Bateram</div></div>
+                        <div className="cal-summary-item"><span className="cal-summary-value" style={{ color:'var(--danger)' }}>{totalDivergentes}</span><div className="cal-summary-label">⚠️ Divergentes</div></div>
+                        <div className="cal-summary-item"><span className="cal-summary-value">{totalPreenchidos}/{(ajustandoDoc.itens || []).length}</span><div className="cal-summary-label">Conferidos</div></div>
+                    </div>
+                    <div style={{ display:'flex', justifyContent:'flex-end', gap:'0.5rem', flexWrap:'wrap', marginBottom:'1.25rem' }}>
+                        <button className="btn btn-warning btn-small" onClick={reabrirParaLoja} disabled={salvandoAjuste}>↩️ Devolver p/ Loja Recontar</button>
+                        <button className="btn btn-outline btn-small" onClick={() => setAjustandoDoc(null)}>← Voltar</button>
                     </div>
                     <div className="form-row">
                         <div className="form-group"><label className="form-label">🔍 Buscar produto</label><input className="form-input" value={buscaAjuste} onChange={e => setBuscaAjuste(e.target.value)} placeholder="Nome ou código..." /></div>
                         <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}>
-                            <button className={`btn btn-small ${soDivergentes ? 'btn-warning' : 'btn-outline'}`} onClick={() => setSoDivergentes(v => !v)} style={{ width:'100%' }}>{soDivergentes ? '⚠️ Mostrando só divergentes' : '🔎 Ver só os divergentes'}</button>
+                            <button className={`btn btn-small ${soDivergentes ? 'btn-warning' : 'btn-outline'}`} onClick={() => setSoDivergentes(v => !v)} style={{ width:'100%' }}>{soDivergentes ? '⚠️ Só divergentes' : '🔎 Ver só divergentes'}</button>
                         </div>
                     </div>
                     <div style={{ padding:'0.75rem 1rem', background:'var(--bg-dark)', borderRadius:'10px', marginBottom:'1.25rem', fontSize:'0.88rem', color:'var(--text-secondary)' }}>
-                        <strong>Última Contagem</strong> = quanto tinha na última contagem ajustada deste produto (histórico). <strong>Contagem Loja</strong> = o que a loja contou agora. Na coluna <strong>"Ajuste Final"</strong> você define o valor correto — <strong>este é o estoque que fica gravado</strong>. A coluna <strong>vs Anterior</strong> mostra a variação em relação à última contagem.
+                        Digite em <strong>"Estoque Sistema"</strong> o que você enxerga no sistema principal para cada produto. Se <strong>bater</strong> com a contagem da loja → aparece ✅ e é só confirmar. Se <strong>divergir</strong> → o sistema mostra o ajuste necessário (ex: sistema 20, loja contou 15 → <strong>tirar 5</strong>). O valor final gravado é sempre o que a <strong>loja contou fisicamente</strong>.
                     </div>
                     <div className="table-container">
                         <table className="table">
-                            <thead><tr><th>Produto</th><th>Código</th><th>Última Contagem</th><th>Contagem Loja</th><th>Ajuste Final</th><th>vs Anterior</th></tr></thead>
+                            <thead><tr><th>Produto</th><th>Código</th><th>Contagem Loja<br/><span style={{ fontWeight:'400', textTransform:'none', fontSize:'0.72rem' }}>(físico)</span></th><th>Estoque Sistema<br/><span style={{ fontWeight:'400', textTransform:'none', fontSize:'0.72rem' }}>(o que você vê)</span></th><th>Divergência / Ajuste</th></tr></thead>
                             <tbody>
                                 {itensDoc.map(i => {
-                                    const ref = refDe(i);
-                                    const contadoFinal = ajusteValores[i.id] !== undefined && ajusteValores[i.id] !== '' ? parseInt(ajusteValores[i.id]) : null;
-                                    const base = contadoFinal !== null ? contadoFinal : num(i.contado);
-                                    const dif = ref ? base - ref.valor : null;
+                                    const sisRaw = sistemaValores[i.id];
+                                    const sis = sisRaw !== '' && sisRaw !== undefined ? parseInt(sisRaw) : null;
+                                    const dif = sis === null ? null : num(i.contado) - sis;
                                     return (
-                                        <tr key={i.id} style={{ background: (dif !== null && dif !== 0) ? 'rgba(239,71,111,0.06)' : undefined }}>
+                                        <tr key={i.id} style={{ background: (dif !== null && dif !== 0) ? 'rgba(239,71,111,0.06)' : (dif === 0 ? 'rgba(6,214,160,0.06)' : undefined) }}>
                                             <td style={{ fontWeight:'600' }}>{i.product}</td>
                                             <td style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>{i.barcode || '-'}</td>
-                                            <td style={{ fontWeight:'700', color:'var(--text-secondary)' }}>{ref ? ref.valor : '— 1ª vez'}</td>
-                                            <td style={{ fontWeight:'700', color:'var(--accent)' }}>{num(i.contado)}</td>
-                                            <td><input type="number" className="form-input" style={{ width:'100px' }} value={ajusteValores[i.id] ?? ''} onChange={e => setAjusteValores(p => ({ ...p, [i.id]: e.target.value }))} /></td>
-                                            <td style={{ fontWeight:'700', color: dif === null ? 'var(--text-secondary)' : dif === 0 ? 'var(--success)' : dif > 0 ? 'var(--primary)' : 'var(--danger)' }}>{dif === null ? 'primeira contagem' : dif === 0 ? '✅ igual' : dif > 0 ? '➕ +' + dif : '➖ ' + dif}</td>
+                                            <td style={{ fontWeight:'800', color:'var(--accent)', fontSize:'1.05rem' }}>{num(i.contado)}</td>
+                                            <td><input type="number" className="form-input" style={{ width:'100px' }} value={sistemaValores[i.id] ?? ''} onChange={e => setSistemaValores(p => ({ ...p, [i.id]: e.target.value }))} placeholder="?" /></td>
+                                            <td style={{ fontWeight:'700' }}>
+                                                {dif === null ? <span style={{ color:'var(--text-muted)' }}>informe o sistema</span>
+                                                 : dif === 0 ? <span style={{ color:'var(--success)' }}>✅ Bate — só confirmar</span>
+                                                 : dif > 0 ? <span style={{ color:'var(--primary)' }}>➕ Ajustar: adicionar {dif} no sistema</span>
+                                                 : <span style={{ color:'var(--danger)' }}>➖ Ajustar: tirar {Math.abs(dif)} do sistema</span>}
+                                            </td>
                                         </tr>
                                     );
                                 })}
@@ -2659,7 +2682,7 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, showToast
                     </div>
                     <div style={{ display:'flex', gap:'1rem', flexWrap:'wrap', marginTop:'1.5rem' }}>
                         <button className="btn btn-warning" style={{ flex:1, minWidth:'220px' }} onClick={reabrirParaLoja} disabled={salvandoAjuste}>↩️ Devolver p/ Loja Recontar</button>
-                        <button className="btn btn-success" style={{ flex:2, minWidth:'260px' }} onClick={aplicarAjuste} disabled={salvandoAjuste}>{salvandoAjuste ? '⏳ Ajustando estoque...' : '✅ Confirmar Ajuste e Aplicar no Estoque'}</button>
+                        <button className="btn btn-success" style={{ flex:2, minWidth:'260px' }} onClick={aplicarAjuste} disabled={salvandoAjuste}>{salvandoAjuste ? '⏳ Finalizando...' : '✅ Confirmar Conferência e Gravar Estoque'}</button>
                     </div>
                 </div>
             </div>
