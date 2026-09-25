@@ -2542,6 +2542,8 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, showToast
         // Bruno precisa informar o estoque do sistema de todos os itens
         const semSistema = (doc.itens || []).filter(i => sistemaValores[i.id] === '' || sistemaValores[i.id] === undefined);
         if (semSistema.length > 0) { showToast('Informe o "Estoque Sistema" de todos os itens (' + semSistema.length + ' faltando)', 'error'); return; }
+        const naoConfirmados = (doc.itens || []).filter(i => !confirmados[i.id]);
+        if (naoConfirmados.length > 0) { showToast('Dê OK / marque como ajustado em todos os itens antes de gravar (' + naoConfirmados.length + ' faltando)', 'error'); return; }
         setSalvandoAjuste(true);
         try {
             // O que a loja contou (fisico) e a verdade final; o "ajuste" e quanto o sistema estava divergente.
@@ -2621,7 +2623,18 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, showToast
         });
         const totalDivergentes = (ajustandoDoc.itens || []).filter(i => { const d = divDe(i); return d !== null && d !== 0; }).length;
         const totalCertos = (ajustandoDoc.itens || []).filter(i => divDe(i) === 0).length;
-        const totalPreenchidos = (ajustandoDoc.itens || []).filter(i => sistemaValores[i.id] !== '' && sistemaValores[i.id] !== undefined).length;
+        const totalConfirmados = (ajustandoDoc.itens || []).filter(i => confirmados[i.id]).length;
+        const totalItensAj = (ajustandoDoc.itens || []).length;
+        const toggleConfirmado = (id) => {
+            if (sistemaValores[id] === '' || sistemaValores[id] === undefined) { showToast('Informe o Estoque Sistema antes de confirmar', 'error'); return; }
+            setConfirmados(p => ({ ...p, [id]: !p[id] }));
+        };
+        const confirmarTodosQueBatem = () => {
+            const novo = { ...confirmados };
+            (ajustandoDoc.itens || []).forEach(i => { if (divDe(i) === 0) novo[i.id] = true; });
+            setConfirmados(novo);
+            showToast('Itens que bateram confirmados ✅');
+        };
         const ultimaData = (() => {
             for (const it of (ajustandoDoc.itens || [])) {
                 const ref = ultimoAjusteProduto(ajustandoDoc.storeId, (it.product || '').trim().toUpperCase(), ajustandoDoc.id);
@@ -2639,9 +2652,10 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, showToast
                     <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))', gap:'1rem', marginBottom:'1.25rem' }}>
                         <div className="cal-summary-item"><span className="cal-summary-value" style={{ color:'var(--success)' }}>{totalCertos}</span><div className="cal-summary-label">✅ Bateram</div></div>
                         <div className="cal-summary-item"><span className="cal-summary-value" style={{ color:'var(--danger)' }}>{totalDivergentes}</span><div className="cal-summary-label">⚠️ Divergentes</div></div>
-                        <div className="cal-summary-item"><span className="cal-summary-value">{totalPreenchidos}/{(ajustandoDoc.itens || []).length}</span><div className="cal-summary-label">Conferidos</div></div>
+                        <div className="cal-summary-item" style={{ border: totalConfirmados === totalItensAj ? '1px solid var(--success)' : undefined }}><span className="cal-summary-value" style={{ color: totalConfirmados === totalItensAj ? 'var(--success)' : undefined }}>{totalConfirmados}/{totalItensAj}</span><div className="cal-summary-label">🆗 Confirmados</div></div>
                     </div>
                     <div style={{ display:'flex', justifyContent:'flex-end', gap:'0.5rem', flexWrap:'wrap', marginBottom:'1.25rem' }}>
+                        <button className="btn btn-success btn-small" onClick={confirmarTodosQueBatem}>✅ Dar OK em todos que bateram</button>
                         <button className="btn btn-warning btn-small" onClick={reabrirParaLoja} disabled={salvandoAjuste}>↩️ Devolver p/ Loja Recontar</button>
                         <button className="btn btn-outline btn-small" onClick={() => setAjustandoDoc(null)}>← Voltar</button>
                     </div>
@@ -2652,27 +2666,33 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, showToast
                         </div>
                     </div>
                     <div style={{ padding:'0.75rem 1rem', background:'var(--bg-dark)', borderRadius:'10px', marginBottom:'1.25rem', fontSize:'0.88rem', color:'var(--text-secondary)' }}>
-                        Digite em <strong>"Estoque Sistema"</strong> o que você enxerga no sistema principal para cada produto. Se <strong>bater</strong> com a contagem da loja → aparece ✅ e é só confirmar. Se <strong>divergir</strong> → o sistema mostra o ajuste necessário (ex: sistema 20, loja contou 15 → <strong>tirar 5</strong>). O valor final gravado é sempre o que a <strong>loja contou fisicamente</strong>.
+                        Digite em <strong>"Estoque Sistema"</strong> o que você enxerga no sistema principal. Se <strong>bater</strong> → clique <strong>🆗 Dar OK</strong>. Se <strong>divergir</strong> → o sistema mostra o ajuste (ex: sistema 16, loja contou 19 → <strong>adicionar 3</strong>), faça o ajuste no sistema principal e clique <strong>✏️ Marcar Ajustado</strong>. Só é possível gravar quando <strong>todos</strong> os itens estiverem confirmados. O valor gravado é sempre o que a <strong>loja contou</strong>.
                     </div>
                     <div className="table-container">
                         <table className="table">
-                            <thead><tr><th>Produto</th><th>Código</th><th>Contagem Loja<br/><span style={{ fontWeight:'400', textTransform:'none', fontSize:'0.72rem' }}>(físico)</span></th><th>Estoque Sistema<br/><span style={{ fontWeight:'400', textTransform:'none', fontSize:'0.72rem' }}>(o que você vê)</span></th><th>Divergência / Ajuste</th></tr></thead>
+                            <thead><tr><th>Produto</th><th>Código</th><th>Contagem Loja<br/><span style={{ fontWeight:'400', textTransform:'none', fontSize:'0.72rem' }}>(físico)</span></th><th>Estoque Sistema<br/><span style={{ fontWeight:'400', textTransform:'none', fontSize:'0.72rem' }}>(o que você vê)</span></th><th>Divergência / Ajuste</th><th>Ação</th></tr></thead>
                             <tbody>
                                 {itensDoc.map(i => {
                                     const sisRaw = sistemaValores[i.id];
                                     const sis = sisRaw !== '' && sisRaw !== undefined ? parseInt(sisRaw) : null;
                                     const dif = sis === null ? null : num(i.contado) - sis;
+                                    const confirmado = !!confirmados[i.id];
                                     return (
-                                        <tr key={i.id} style={{ background: (dif !== null && dif !== 0) ? 'rgba(239,71,111,0.06)' : (dif === 0 ? 'rgba(6,214,160,0.06)' : undefined) }}>
+                                        <tr key={i.id} style={{ background: confirmado ? 'rgba(6,214,160,0.10)' : (dif !== null && dif !== 0) ? 'rgba(239,71,111,0.06)' : undefined }}>
                                             <td style={{ fontWeight:'600' }}>{i.product}</td>
                                             <td style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>{i.barcode || '-'}</td>
                                             <td style={{ fontWeight:'800', color:'var(--accent)', fontSize:'1.05rem' }}>{num(i.contado)}</td>
-                                            <td><input type="number" className="form-input" style={{ width:'100px' }} value={sistemaValores[i.id] ?? ''} onChange={e => setSistemaValores(p => ({ ...p, [i.id]: e.target.value }))} placeholder="?" /></td>
+                                            <td><input type="number" className="form-input" style={{ width:'100px' }} value={sistemaValores[i.id] ?? ''} onChange={e => { setSistemaValores(p => ({ ...p, [i.id]: e.target.value })); if (confirmados[i.id]) setConfirmados(p => ({ ...p, [i.id]: false })); }} placeholder="?" /></td>
                                             <td style={{ fontWeight:'700' }}>
                                                 {dif === null ? <span style={{ color:'var(--text-muted)' }}>informe o sistema</span>
-                                                 : dif === 0 ? <span style={{ color:'var(--success)' }}>✅ Bate — só confirmar</span>
-                                                 : dif > 0 ? <span style={{ color:'var(--primary)' }}>➕ Ajustar: adicionar {dif} no sistema</span>
-                                                 : <span style={{ color:'var(--danger)' }}>➖ Ajustar: tirar {Math.abs(dif)} do sistema</span>}
+                                                 : dif === 0 ? <span style={{ color:'var(--success)' }}>✅ Bate</span>
+                                                 : dif > 0 ? <span style={{ color:'var(--primary)' }}>➕ adicionar {dif} no sistema</span>
+                                                 : <span style={{ color:'var(--danger)' }}>➖ tirar {Math.abs(dif)} do sistema</span>}
+                                            </td>
+                                            <td>
+                                                {confirmado
+                                                 ? <button className="btn btn-success btn-small" onClick={() => toggleConfirmado(i.id)} title="Desfazer">{dif === 0 ? '🆗 OK' : '✏️ Ajustado'} ✓</button>
+                                                 : <button className="btn btn-outline btn-small" onClick={() => toggleConfirmado(i.id)}>{dif === 0 ? '🆗 Dar OK' : '✏️ Marcar Ajustado'}</button>}
                                             </td>
                                         </tr>
                                     );
