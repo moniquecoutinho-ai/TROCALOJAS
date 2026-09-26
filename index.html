@@ -2415,8 +2415,7 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, storeVend
     const [lojaSel, setLojaSel] = useState(STORES[0].id);
     const [dataContagem, setDataContagem] = useState(todayStr);
     const [programacao, setProgramacao] = useState([]);
-    const [novaDataProg, setNovaDataProg] = useState(todayStr);
-    const [savingProg, setSavingProg] = useState(false);
+
     // Importacao de planilha de vendas (curva ABC)
     const [lojaImport, setLojaImport] = useState(STORES[0].id);
     const [importPreview, setImportPreview] = useState(null);
@@ -2477,26 +2476,37 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, storeVend
 
     // Gera automaticamente a contagem do dia: 15 itens priorizando curva A > B > C,
     // pulando os que ja foram contados nas ultimas contagens (rodizio simples)
-    const gerarContagemAuto = () => {
-        if (curvaClassificada.length === 0) { showToast('Importe a planilha de vendas desta loja primeiro', 'error'); return; }
-        const estoque = storeEstoques[lojaSel] || [];
+    // Seleciona os proximos N itens da curva A>B>C para uma loja, excluindo os ja usados (rodizio).
+    // Retorna os PRODUTOS de estoque escolhidos (com curva anexada).
+    const selecionarItensCurva = (storeId, jaUsados, n) => {
+        const curvaLoja = (storeVendasCurva[storeId] && storeVendasCurva[storeId].produtos) ? classificarCurvaABC(storeVendasCurva[storeId].produtos) : [];
+        if (curvaLoja.length === 0) return [];
+        const estoque = storeEstoques[storeId] || [];
         const estoquePorNome = {};
         estoque.forEach(p => { estoquePorNome[(p.product || '').trim().toUpperCase()] = p; });
-        // itens contados recentemente (ultimos 5 docs) para nao repetir
+        const ordem = { A: 0, B: 1, C: 2 };
+        const candidatos = curvaLoja
+            .filter(p => estoquePorNome[(p.product || '').trim().toUpperCase()])
+            .sort((a, b) => (ordem[a.curva] - ordem[b.curva]) || (b.qtd - a.qtd));
+        const naoUsados = candidatos.filter(p => !jaUsados[(p.product || '').trim().toUpperCase()]);
+        // se acabaram os nao usados, reinicia o ciclo (volta a permitir repetir)
+        const pool = naoUsados.length >= n ? naoUsados : candidatos;
+        return pool.slice(0, n).map(p => {
+            const prod = estoquePorNome[(p.product || '').trim().toUpperCase()];
+            return { prod, curva: p.curva };
+        }).filter(x => x.prod);
+    };
+
+    const gerarContagemAuto = () => {
+        if (curvaClassificada.length === 0) { showToast('Importe a planilha de vendas desta loja primeiro', 'error'); return; }
         const recentes = {};
         (storeInventariosDiarios[lojaSel] || []).slice(0, 5).forEach(d => {
             (d.itens || []).forEach(i => { recentes[(i.product || '').trim().toUpperCase()] = true; });
         });
-        // ordena por curva A>B>C, depois por qtd; pega os que existem no estoque da loja
-        const ordem = { A: 0, B: 1, C: 2 };
-        const candidatos = curvaClassificada
-            .filter(p => estoquePorNome[(p.product || '').trim().toUpperCase()])
-            .sort((a, b) => (ordem[a.curva] - ordem[b.curva]) || (b.qtd - a.qtd));
-        const naoRepetidos = candidatos.filter(p => !recentes[(p.product || '').trim().toUpperCase()]);
-        const escolhidos = (naoRepetidos.length >= 15 ? naoRepetidos : candidatos).slice(0, 15);
+        const escolhidos = selecionarItensCurva(lojaSel, recentes, 15);
         if (escolhidos.length === 0) { showToast('Nenhum produto da curva bate com o estoque desta loja', 'error'); return; }
         const sel = {};
-        escolhidos.forEach(p => { const prod = estoquePorNome[(p.product || '').trim().toUpperCase()]; if (prod) sel[prod.id] = true; });
+        escolhidos.forEach(x => { sel[x.prod.id] = true; });
         setSelecionados(sel);
         showToast(escolhidos.length + ' itens selecionados automaticamente (curva A→B→C) ✅');
     };
@@ -2506,22 +2516,70 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, storeVend
         return () => unsub && unsub();
     }, []);
 
-    const addDataProg = async () => {
-        if (!novaDataProg) return;
-        if (programacao.some(p => p.data === novaDataProg)) { showToast('Essa data já está programada', 'error'); return; }
-        setSavingProg(true);
-        try {
-            const nova = [...programacao, { data: novaDataProg, criadoEm: new Date().toLocaleString('pt-BR') }].sort((a, b) => (a.data > b.data ? 1 : -1));
-            await window.TrocaDB.salvarProgramacaoContagem(nova);
-            showToast('Data programada ✅');
-        } catch(e) { console.error(e); showToast('Erro ao programar', 'error'); }
-        finally { setSavingProg(false); }
-    };
     const removerDataProg = async (data) => {
         try { await window.TrocaDB.salvarProgramacaoContagem(programacao.filter(p => p.data !== data)); showToast('Data removida'); }
         catch { showToast('Erro ao remover', 'error'); }
     };
-    const usarDataProg = (data) => { setDataContagem(data); window.scrollTo({ top: 0, behavior: 'smooth' }); showToast('Data ' + (parseDateKey(data) ? parseDateKey(data).toLocaleDateString('pt-BR') : data) + ' carregada — escolha a loja e os itens'); };
+    const usarDataProg = (data) => { setDataContagem(data); window.scrollTo({ top: 0, behavior: 'smooth' }); showToast('Data ' + (parseDateKey(data) ? parseDateKey(data).toLocaleDateString('pt-BR') : data) + ' carregada'); };
+
+    // Gera a SEMANA inteira: para cada dia util escolhido, cria contagem de 15 itens (curva A>B>C) com rodizio.
+    // progLojas: 'all' ou id de loja. incluiSabado: se conta sabado.
+    const [progLojaSel, setProgLojaSel] = useState('all');
+    const [progInicio, setProgInicio] = useState(todayStr);
+    const [progDias, setProgDias] = useState('5');
+    const [progIncluiSab, setProgIncluiSab] = useState(false);
+    const [gerandoSemana, setGerandoSemana] = useState(false);
+
+    const gerarSemana = async () => {
+        const lojasAlvo = progLojaSel === 'all' ? STORES.map(s => s.id) : [progLojaSel];
+        // valida que todas tem curva
+        const semCurva = lojasAlvo.filter(id => !(storeVendasCurva[id] && storeVendasCurva[id].produtos));
+        if (semCurva.length > 0) {
+            const nomes = semCurva.map(id => (STORES.find(s => s.id === id) || {}).name).join(', ');
+            showToast('Importe a planilha de vendas primeiro de: ' + nomes, 'error'); return;
+        }
+        const nDias = parseInt(progDias) || 5;
+        if (!confirm('Gerar contagem de 15 itens por dia, durante ' + nDias + ' dia(s) úteis, para ' + (progLojaSel === 'all' ? 'TODAS as lojas' : (STORES.find(s => s.id === progLojaSel) || {}).name) + '?\n\nCada loja terá sua própria sequência da curva (A→B→C, sem repetir).')) return;
+        setGerandoSemana(true);
+        try {
+            // monta as datas uteis a partir do inicio
+            const datas = [];
+            let cursor = parseDateKey(progInicio) || new Date();
+            let guard = 0;
+            while (datas.length < nDias && guard < 60) {
+                const dow = cursor.getDay(); // 0 dom, 6 sab
+                if (dow !== 0 && (progIncluiSab || dow !== 6)) datas.push(dateKey(cursor));
+                cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1);
+                guard++;
+            }
+            const novasDatasProg = [...programacao];
+            let totalContagens = 0;
+            // para cada loja, mantem o rodizio acumulado ao longo dos dias
+            for (const storeId of lojasAlvo) {
+                const storeName = (STORES.find(s => s.id === storeId) || {}).name;
+                const usados = {};
+                // ja marca como usados os itens de contagens recentes existentes
+                (storeInventariosDiarios[storeId] || []).slice(0, 3).forEach(d => {
+                    (d.itens || []).forEach(i => { usados[(i.product || '').trim().toUpperCase()] = true; });
+                });
+                for (const data of datas) {
+                    const escolhidos = selecionarItensCurva(storeId, usados, 15);
+                    if (escolhidos.length === 0) continue;
+                    escolhidos.forEach(x => { usados[(x.prod.product || '').trim().toUpperCase()] = true; });
+                    const itens = escolhidos.map(x => ({ id: x.prod.id, product: x.prod.product, barcode: x.prod.barcode || '', group: x.prod.group || '', curva: x.curva, estoqueSistema: 0, contado: null, ajuste: null }));
+                    // docId unico por loja+data (contagem-auto) para nao colidir com contagem manual do mesmo dia
+                    await window.TrocaDB.salvarInventarioDiario(storeId, data + '-auto', {
+                        date: data, storeName, criadoPor: 'Programação Semanal', itens, status: 'pendente', criadoEm: new Date().toLocaleString('pt-BR'), auto: true
+                    });
+                    totalContagens++;
+                    if (!novasDatasProg.some(p => p.data === data)) novasDatasProg.push({ data, criadoEm: new Date().toLocaleString('pt-BR') });
+                }
+            }
+            await window.TrocaDB.salvarProgramacaoContagem(novasDatasProg.sort((a, b) => (a.data > b.data ? 1 : -1)));
+            showToast(totalContagens + ' contagem(ns) programada(s)! As lojas verão a do dia certo. 🚀');
+        } catch(e) { console.error(e); showToast('Erro ao gerar semana', 'error'); }
+        finally { setGerandoSemana(false); }
+    };
     const [busca, setBusca] = useState('');
     const [selecionados, setSelecionados] = useState({});
     const [criando, setCriando] = useState(false);
@@ -2904,28 +2962,46 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, storeVend
                     })}
                 </div>
             </div>
-            <div className="card" style={{ border:'1px solid var(--secondary-light)' }}>
-                <h2 className="card-title">🗓️ Programação de Contagens</h2>
-                <p style={{ color:'var(--text-secondary)', fontSize:'0.9rem', marginTop:'-0.75rem', marginBottom:'1.5rem' }}>Agende as datas em que as contagens devem acontecer. Clique numa data para já começar a montar a contagem dela.</p>
+            <div className="card" style={{ border:'2px solid var(--secondary-light)' }}>
+                <h2 className="card-title">🚀 Programar Contagem da Semana</h2>
+                <p style={{ color:'var(--text-secondary)', fontSize:'0.9rem', marginTop:'-0.75rem', marginBottom:'1.5rem' }}>Gera automaticamente uma contagem de 15 itens por dia útil, para o período escolhido. Cada loja segue sua própria curva (A→B→C) sem repetir itens entre os dias. As lojas só veem a contagem no dia certo.</p>
                 <div className="form-row">
-                    <div className="form-group"><label className="form-label">Nova Data</label><input type="date" className="form-input" value={novaDataProg} onChange={e => setNovaDataProg(e.target.value)} /></div>
-                    <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}><button className="btn btn-primary" onClick={addDataProg} disabled={savingProg} style={{ width:'100%' }}>➕ Programar Data</button></div>
-                </div>
-                {programacao.length > 0 ? (
-                    <div style={{ display:'flex', flexWrap:'wrap', gap:'0.6rem' }}>
-                        {programacao.map(p => {
-                            const passou = p.data < todayStr;
-                            const hoje = p.data === todayStr;
-                            return (
-                                <span key={p.data} className="badge" style={{ display:'inline-flex', alignItems:'center', gap:'0.5rem', background: hoje ? 'rgba(6,214,160,0.2)' : passou ? 'var(--bg-dark)' : 'rgba(26,107,168,0.2)', color: hoje ? 'var(--success)' : passou ? 'var(--text-muted)' : 'var(--secondary-light)', border: hoje ? '1px solid var(--success)' : 'none', cursor:'pointer' }}>
-                                    <span onClick={() => usarDataProg(p.data)}>{hoje ? '📍 HOJE — ' : ''}{parseDateKey(p.data) ? parseDateKey(p.data).toLocaleDateString('pt-BR', { weekday:'short', day:'2-digit', month:'2-digit' }) : p.data}</span>
-                                    <button onClick={() => removerDataProg(p.data)} style={{ background:'none', border:'none', color:'var(--danger)', cursor:'pointer', fontSize:'1rem', padding:0, lineHeight:1 }}>×</button>
-                                </span>
-                            );
-                        })}
+                    <div className="form-group">
+                        <label className="form-label">Loja(s)</label>
+                        <select className="form-select" value={progLojaSel} onChange={e => setProgLojaSel(e.target.value)}>
+                            <option value="all">🏪 Todas as Lojas (com curva)</option>
+                            {STORES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
                     </div>
-                ) : (
-                    <div style={{ color:'var(--text-secondary)', fontSize:'0.9rem' }}>Nenhuma data programada ainda.</div>
+                    <div className="form-group"><label className="form-label">Começar em</label><input type="date" className="form-input" value={progInicio} onChange={e => setProgInicio(e.target.value)} /></div>
+                    <div className="form-group"><label className="form-label">Quantos dias úteis</label>
+                        <select className="form-select" value={progDias} onChange={e => setProgDias(e.target.value)}>
+                            <option value="5">5 (semana)</option><option value="6">6</option><option value="10">10 (quinzena)</option><option value="20">20 (mês)</option>
+                        </select>
+                    </div>
+                    <div className="form-group"><label className="form-label">Incluir sábado?</label>
+                        <select className="form-select" value={progIncluiSab ? 'sim' : 'nao'} onChange={e => setProgIncluiSab(e.target.value === 'sim')}>
+                            <option value="nao">Não</option><option value="sim">Sim</option>
+                        </select>
+                    </div>
+                </div>
+                <button className="btn btn-primary" onClick={gerarSemana} disabled={gerandoSemana} style={{ width:'100%' }}>{gerandoSemana ? '⏳ Gerando cronograma...' : '🚀 Gerar Cronograma da Semana (15 itens/dia)'}</button>
+                {programacao.length > 0 && (
+                    <div style={{ marginTop:'1.5rem' }}>
+                        <div style={{ fontWeight:'700', marginBottom:'0.75rem', fontSize:'0.9rem', color:'var(--text-secondary)' }}>📅 Dias programados:</div>
+                        <div style={{ display:'flex', flexWrap:'wrap', gap:'0.6rem' }}>
+                            {programacao.map(p => {
+                                const passou = p.data < todayStr;
+                                const hoje = p.data === todayStr;
+                                return (
+                                    <span key={p.data} className="badge" style={{ display:'inline-flex', alignItems:'center', gap:'0.5rem', background: hoje ? 'rgba(6,214,160,0.2)' : passou ? 'var(--bg-dark)' : 'rgba(26,107,168,0.2)', color: hoje ? 'var(--success)' : passou ? 'var(--text-muted)' : 'var(--secondary-light)', border: hoje ? '1px solid var(--success)' : 'none' }}>
+                                        {hoje ? '📍 HOJE — ' : ''}{parseDateKey(p.data) ? parseDateKey(p.data).toLocaleDateString('pt-BR', { weekday:'short', day:'2-digit', month:'2-digit' }) : p.data}
+                                        <button onClick={() => removerDataProg(p.data)} style={{ background:'none', border:'none', color:'var(--danger)', cursor:'pointer', fontSize:'1rem', padding:0, lineHeight:1 }} title="Remover da lista (não apaga as contagens já criadas)">×</button>
+                                    </span>
+                                );
+                            })}
+                        </div>
+                    </div>
                 )}
             </div>
             {aguardandoAjuste.length > 0 && (
