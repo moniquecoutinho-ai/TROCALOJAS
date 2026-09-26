@@ -364,6 +364,30 @@
         return results;
     }
 
+    // ===== VENDAS IMPORTADAS (base da curva ABC por loja) =====
+    // Guarda o AGREGADO por produto (nao as milhares de linhas) para caber no Firestore
+    async function salvarVendasCurva(storeId, dados) {
+        const ref = db.collection("stores").doc(storeId).collection("config").doc("vendas_curva");
+        await ref.set({ ...dados, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    }
+
+    function ouvirVendasCurva(storeId, callback) {
+        const ref = db.collection("stores").doc(storeId).collection("config").doc("vendas_curva");
+        return ref.onSnapshot(function(snap) {
+            callback(snap.exists ? snap.data() : null);
+        }, function() { callback(null); });
+    }
+
+    function ouvirTodasVendasCurva(lojas, callback) {
+        const unsubscribes = lojas.map(function(loja) {
+            const ref = db.collection("stores").doc(loja.id).collection("config").doc("vendas_curva");
+            return ref.onSnapshot(function(snap) {
+                callback(loja.id, snap.exists ? snap.data() : null);
+            }, function() { callback(loja.id, null); });
+        });
+        return function() { unsubscribes.forEach(function(u) { u && u(); }); };
+    }
+
     // ===== INVENTARIO DIARIO (contagem de estoque: admin escolhe, loja conta) =====
     async function salvarInventarioDiario(storeId, docId, dados) {
         const ref = db.collection("stores").doc(storeId).collection("inventarios_diarios").doc(docId);
@@ -823,6 +847,7 @@
         seedInventoryAllStores, salvarCatalogoMaster, ouvirCatalogoMaster, sincronizarCatalogoLojas,
         salvarInventarioDiario, deletarInventarioDiario, ouvirInventariosDiarios, ouvirTodosInventariosDiarios, ouvirTodosEstoques,
         salvarProgramacaoContagem, ouvirProgramacaoContagem,
+        salvarVendasCurva, ouvirVendasCurva, ouvirTodasVendasCurva,
         salvarFechamento, getFechamento, ouvirTodosFechamentos, ouvirFechamentosLoja,
         salvarMetas, ouvirMetas, salvarMetasVendedoras, ouvirMetasVendedoras,
         salvarVenda, deletarVenda, atualizarVenda, ouvirVendas, ouvirTodasVendas,
@@ -1202,6 +1227,7 @@ function AdminView({ onLogout, showToast }) {
     const [storeCashbacks, setStoreCashbacks] = useState({});
     const [storeEstoques, setStoreEstoques] = useState({});
     const [storeInventariosDiarios, setStoreInventariosDiarios] = useState({});
+    const [storeVendasCurva, setStoreVendasCurva] = useState({});
     const [metas, setMetas] = useState({});
     const [metasVend, setMetasVend] = useState({});
     const [selectedStore, setSelectedStore] = useState('all');
@@ -1250,6 +1276,9 @@ function AdminView({ onLogout, showToast }) {
             }));
             unsubs.push(window.TrocaDB.ouvirTodosInventariosDiarios(STORES, (storeId, docs) => {
                 setStoreInventariosDiarios(prev => ({ ...prev, [storeId]: docs }));
+            }));
+            unsubs.push(window.TrocaDB.ouvirTodasVendasCurva(STORES, (storeId, dados) => {
+                setStoreVendasCurva(prev => ({ ...prev, [storeId]: dados }));
             }));
             unsubs.push(window.TrocaDB.ouvirTodosTesters(STORES, (storeId, testers) => {
                 setStoreTesters(prev => ({ ...prev, [storeId]: testers }));
@@ -1425,7 +1454,7 @@ function AdminView({ onLogout, showToast }) {
                     <AdminCashbackPage storeCashbacks={storeCashbacks} showToast={showToast} />
                 )}
                 {adminPage === 'inventario' && (
-                    <AdminInventarioPage storeEstoques={storeEstoques} storeInventariosDiarios={storeInventariosDiarios} showToast={showToast} />
+                    <AdminInventarioPage storeEstoques={storeEstoques} storeInventariosDiarios={storeInventariosDiarios} storeVendasCurva={storeVendasCurva} showToast={showToast} />
                 )}
                 {adminPage === 'compras' && (
                     <AdminComprasPage storeInsumos={storeInsumos} storeMovs={storeMovs} showToast={showToast} />
@@ -2341,13 +2370,136 @@ function InventarioDiarioPage({ storeId, storeName, inventory, onSave, inventari
     );
 }
 
-function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, showToast }) {
+// ===== CURVA ABC =====
+// Peso da curva para SUGESTAO DE COMPRA (multiplica o estoque minimo)
+const PESO_CURVA = { A: 1.75, B: 1.5, C: 1 };
+
+// Agrega linhas da planilha de vendas por PRODUTO. Cada linha = 1 item (regra: por NFE).
+// Retorna { produtos: [{product, linha, qtd, faturamento, nfes}], totalQtd, totalNfes, geradoEm }
+function agregarVendasCurva(linhas) {
+    const map = {};
+    const nfesGlobais = {};
+    linhas.forEach(function(l) {
+        const produto = (l.produto || '').trim();
+        if (!produto) return;
+        const key = produto.toUpperCase();
+        if (!map[key]) map[key] = { product: produto, linha: l.linha || '', qtd: 0, faturamento: 0, nfes: {} };
+        map[key].qtd += num(l.qtd);
+        map[key].faturamento += num(l.valorItem) * (num(l.qtd) || 1);
+        if (l.nfe) { map[key].nfes[l.nfe] = true; nfesGlobais[l.nfe] = true; }
+    });
+    const produtos = Object.values(map).map(function(p) {
+        return { product: p.product, linha: p.linha, qtd: p.qtd, faturamento: p.faturamento, nfes: Object.keys(p.nfes).length };
+    });
+    return { produtos: produtos, totalQtd: produtos.reduce(function(s,p){return s+p.qtd;},0), totalNfes: Object.keys(nfesGlobais).length };
+}
+
+// Classifica produtos em A/B/C por QUANTIDADE vendida (Pareto: A<=80%, B<=95%, C resto)
+function classificarCurvaABC(produtos) {
+    const ordenados = produtos.slice().sort(function(a,b){ return b.qtd - a.qtd || b.faturamento - a.faturamento; });
+    const total = ordenados.reduce(function(s,p){return s+num(p.qtd);},0) || 1;
+    let acum = 0;
+    return ordenados.map(function(p, idx) {
+        acum += num(p.qtd);
+        const pctAcum = (acum / total) * 100;
+        let curva;
+        if (pctAcum <= 80) curva = 'A';
+        else if (pctAcum <= 95) curva = 'B';
+        else curva = 'C';
+        return { ...p, rank: idx + 1, pctAcum: pctAcum, curva: curva };
+    });
+}
+
+function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, storeVendasCurva, showToast }) {
     const todayStr = new Date().toISOString().split('T')[0];
     const [lojaSel, setLojaSel] = useState(STORES[0].id);
     const [dataContagem, setDataContagem] = useState(todayStr);
     const [programacao, setProgramacao] = useState([]);
     const [novaDataProg, setNovaDataProg] = useState(todayStr);
     const [savingProg, setSavingProg] = useState(false);
+    // Importacao de planilha de vendas (curva ABC)
+    const [lojaImport, setLojaImport] = useState(STORES[0].id);
+    const [importPreview, setImportPreview] = useState(null);
+    const [importFileName, setImportFileName] = useState('');
+    const [importando, setImportando] = useState(false);
+
+    const curvaLojaSel = storeVendasCurva[lojaSel] || null;
+    const curvaClassificada = useMemo(() => {
+        if (!curvaLojaSel || !curvaLojaSel.produtos) return [];
+        return classificarCurvaABC(curvaLojaSel.produtos);
+    }, [curvaLojaSel]);
+    const curvaPorProduto = useMemo(() => {
+        const m = {};
+        curvaClassificada.forEach(p => { m[(p.product || '').trim().toUpperCase()] = p; });
+        return m;
+    }, [curvaClassificada]);
+
+    const handleFileVendas = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        setImportFileName(file.name);
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            try {
+                const wb = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' });
+                const ws = wb.Sheets[wb.SheetNames[0]];
+                const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+                const linhas = rows.map(row => ({
+                    nfe: acharColuna(row, ['NFE', 'NF', 'NOTA', 'NUMERO NFE']),
+                    produto: acharColuna(row, ['PRODUTO', 'NOME', 'DESCRICAO', 'ITEM']),
+                    linha: acharColuna(row, ['LINHA', 'CATEGORIA', 'GRUPO']),
+                    qtd: acharColuna(row, ['QUANTIDADE VENDIDA', 'QUANTIDADE', 'QTD', 'QTDE']),
+                    valorItem: acharColuna(row, ['VALOR ITEM NA VENDA', 'VALOR ITEM', 'VALOR UNITARIO', 'PRECO'])
+                })).filter(l => (l.produto || '').toString().trim());
+                if (!linhas.length) { showToast('Não encontrei coluna de PRODUTO na planilha', 'error'); setImportPreview(null); return; }
+                const agregado = agregarVendasCurva(linhas);
+                setImportPreview(agregado);
+            } catch(err) { console.error(err); showToast('Erro ao ler a planilha — confira o formato', 'error'); }
+        };
+        reader.readAsArrayBuffer(file);
+        e.target.value = '';
+    };
+
+    const confirmarImportVendas = async () => {
+        if (!importPreview) return;
+        setImportando(true);
+        try {
+            const storeName = (STORES.find(s => s.id === lojaImport) || {}).name;
+            await window.TrocaDB.salvarVendasCurva(lojaImport, {
+                produtos: importPreview.produtos, totalQtd: importPreview.totalQtd, totalNfes: importPreview.totalNfes,
+                geradoEm: new Date().toLocaleString('pt-BR'), arquivo: importFileName
+            });
+            showToast('Vendas de ' + storeName + ' importadas! ' + importPreview.produtos.length + ' produtos, ' + importPreview.totalNfes + ' NFEs 📊');
+            setImportPreview(null); setImportFileName('');
+        } catch(e) { console.error(e); showToast('Erro ao salvar vendas', 'error'); }
+        finally { setImportando(false); }
+    };
+
+    // Gera automaticamente a contagem do dia: 15 itens priorizando curva A > B > C,
+    // pulando os que ja foram contados nas ultimas contagens (rodizio simples)
+    const gerarContagemAuto = () => {
+        if (curvaClassificada.length === 0) { showToast('Importe a planilha de vendas desta loja primeiro', 'error'); return; }
+        const estoque = storeEstoques[lojaSel] || [];
+        const estoquePorNome = {};
+        estoque.forEach(p => { estoquePorNome[(p.product || '').trim().toUpperCase()] = p; });
+        // itens contados recentemente (ultimos 5 docs) para nao repetir
+        const recentes = {};
+        (storeInventariosDiarios[lojaSel] || []).slice(0, 5).forEach(d => {
+            (d.itens || []).forEach(i => { recentes[(i.product || '').trim().toUpperCase()] = true; });
+        });
+        // ordena por curva A>B>C, depois por qtd; pega os que existem no estoque da loja
+        const ordem = { A: 0, B: 1, C: 2 };
+        const candidatos = curvaClassificada
+            .filter(p => estoquePorNome[(p.product || '').trim().toUpperCase()])
+            .sort((a, b) => (ordem[a.curva] - ordem[b.curva]) || (b.qtd - a.qtd));
+        const naoRepetidos = candidatos.filter(p => !recentes[(p.product || '').trim().toUpperCase()]);
+        const escolhidos = (naoRepetidos.length >= 15 ? naoRepetidos : candidatos).slice(0, 15);
+        if (escolhidos.length === 0) { showToast('Nenhum produto da curva bate com o estoque desta loja', 'error'); return; }
+        const sel = {};
+        escolhidos.forEach(p => { const prod = estoquePorNome[(p.product || '').trim().toUpperCase()]; if (prod) sel[prod.id] = true; });
+        setSelecionados(sel);
+        showToast(escolhidos.length + ' itens selecionados automaticamente (curva A→B→C) ✅');
+    };
 
     useEffect(() => {
         const unsub = window.TrocaDB.ouvirProgramacaoContagem((datas) => setProgramacao(datas || []));
@@ -2715,6 +2867,43 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, showToast
                 <h1 className="page-title">📋 Inventário Diário</h1>
                 <p className="page-subtitle">Escolha os itens que cada loja vai contar hoje e acompanhe a divergência de estoque</p>
             </div>
+            <div className="card" style={{ border:'1px solid var(--primary)' }}>
+                <h2 className="card-title">📊 Importar Vendas & Curva ABC</h2>
+                <p style={{ color:'var(--text-secondary)', fontSize:'0.9rem', marginTop:'-0.75rem', marginBottom:'1.5rem' }}>Importe a planilha de vendas de cada loja (colunas: NFE, Produto, Linha, Quantidade Vendida, Valor Item). A curva ABC é montada por quantidade vendida e usada para a contagem automática e a sugestão de compra.</p>
+                <div className="form-row">
+                    <div className="form-group">
+                        <label className="form-label">Loja da planilha</label>
+                        <select className="form-select" value={lojaImport} onChange={e => setLojaImport(e.target.value)}>
+                            {STORES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                    </div>
+                    <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}>
+                        <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFileVendas} style={{ display:'none' }} id="import-vendas" />
+                        <label htmlFor="import-vendas" className="btn btn-secondary" style={{ width:'100%' }}>📁 Escolher Planilha de Vendas</label>
+                    </div>
+                </div>
+                {importPreview && (
+                    <div style={{ padding:'1rem', background:'var(--bg-dark)', borderRadius:'10px', marginBottom:'1rem' }}>
+                        ✅ <strong>{importPreview.produtos.length} produtos</strong> • <strong>{importPreview.totalNfes} NFEs</strong> • <strong>{Math.round(importPreview.totalQtd)} unidades vendidas</strong> lidas de {importFileName}.
+                        <div style={{ display:'flex', gap:'0.75rem', marginTop:'1rem', flexWrap:'wrap' }}>
+                            <button className="btn btn-success btn-small" onClick={confirmarImportVendas} disabled={importando}>{importando ? '⏳...' : '💾 Salvar curva de ' + ((STORES.find(s => s.id === lojaImport) || {}).name || '')}</button>
+                            <button className="btn btn-outline btn-small" onClick={() => { setImportPreview(null); setImportFileName(''); }}>Cancelar</button>
+                        </div>
+                    </div>
+                )}
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))', gap:'0.75rem' }}>
+                    {STORES.map(s => {
+                        const cv = storeVendasCurva[s.id];
+                        return (
+                            <div key={s.id} className="cal-summary-item" style={{ border: cv ? '1px solid var(--success)' : '1px solid var(--border)' }}>
+                                <span className="cal-summary-value" style={{ fontSize:'1.1rem', color: cv ? 'var(--success)' : 'var(--text-muted)' }}>{cv ? (cv.produtos || []).length + ' prod.' : '—'}</span>
+                                <div className="cal-summary-label" style={{ fontWeight:'700' }}>{s.name}</div>
+                                <div className="cal-summary-label">{cv ? 'curva ok' : 'sem planilha'}</div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
             <div className="card" style={{ border:'1px solid var(--secondary-light)' }}>
                 <h2 className="card-title">🗓️ Programação de Contagens</h2>
                 <p style={{ color:'var(--text-secondary)', fontSize:'0.9rem', marginTop:'-0.75rem', marginBottom:'1.5rem' }}>Agende as datas em que as contagens devem acontecer. Clique numa data para já começar a montar a contagem dela.</p>
@@ -2819,23 +3008,31 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, showToast
                     <div className="form-group"><label className="form-label">Data da Contagem</label><input type="date" className="form-input" value={dataContagem} onChange={e => setDataContagem(e.target.value)} /></div>
                     <div className="form-group"><label className="form-label">🔍 Buscar Produto pelo Nome</label><input className="form-input" value={busca} onChange={e => setBusca(e.target.value)} placeholder="Digite o nome, grupo ou código de barras..." autoFocus /></div>
                 </div>
-                <div style={{ display:'flex', gap:'0.75rem', flexWrap:'wrap', marginBottom:'1.25rem' }}>
-                    <button className="btn btn-outline btn-small" onClick={selecionarTodosFiltrados}>☑️ Selecionar todos os filtrados ({itensFiltrados.length})</button>
-                    <button className="btn btn-outline btn-small" onClick={limparSelecao}>Limpar seleção</button>
+                <div style={{ display:'flex', gap:'0.75rem', flexWrap:'wrap', marginBottom:'1.25rem', alignItems:'center' }}>
+                    <button className="btn btn-primary btn-small" onClick={gerarContagemAuto} disabled={curvaClassificada.length === 0} title={curvaClassificada.length === 0 ? 'Importe a planilha de vendas desta loja' : ''}>⚡ Gerar 15 itens automático (curva A→B→C)</button>
+                    <button className="btn btn-outline btn-small" onClick={selecionarTodosFiltrados}>☑️ Todos filtrados ({itensFiltrados.length})</button>
+                    <button className="btn btn-outline btn-small" onClick={limparSelecao}>Limpar</button>
                     <span style={{ marginLeft:'auto', fontWeight:'700', color:'var(--primary)' }}>{qtdSelecionados} selecionado(s)</span>
                 </div>
+                {curvaClassificada.length === 0 && <div style={{ fontSize:'0.85rem', color:'var(--warning)', marginTop:'-0.75rem', marginBottom:'1rem' }}>💡 Importe a planilha de vendas desta loja acima para habilitar a geração automática e ver a curva de cada produto.</div>}
                 <div className="table-container" style={{ maxHeight:'400px', overflowY:'auto' }}>
                     <table className="table">
-                        <thead><tr><th></th><th>Produto</th><th>Grupo</th><th>Estoque Atual</th></tr></thead>
+                        <thead><tr><th></th><th>Curva</th><th>Produto</th><th>Grupo</th><th>Vendas</th><th>Estoque Atual</th></tr></thead>
                         <tbody>
-                            {itensFiltrados.slice(0, 400).map(i => (
-                                <tr key={i.id} style={{ cursor:'pointer' }} onClick={() => toggleItem(i.id)}>
-                                    <td><input type="checkbox" checked={!!selecionados[i.id]} onChange={() => toggleItem(i.id)} onClick={e => e.stopPropagation()} /></td>
-                                    <td style={{ fontWeight:'600' }}>{i.product}</td>
-                                    <td style={{ fontSize:'0.85rem', color:'var(--text-secondary)' }}>{i.group || '-'}</td>
-                                    <td style={{ fontWeight:'700' }}>{num(i.quantity)}</td>
-                                </tr>
-                            ))}
+                            {itensFiltrados.slice(0, 400).map(i => {
+                                const cv = curvaPorProduto[(i.product || '').trim().toUpperCase()];
+                                const corCurva = cv ? (cv.curva === 'A' ? 'var(--success)' : cv.curva === 'B' ? 'var(--warning)' : 'var(--text-secondary)') : 'var(--text-muted)';
+                                return (
+                                    <tr key={i.id} style={{ cursor:'pointer' }} onClick={() => toggleItem(i.id)}>
+                                        <td><input type="checkbox" checked={!!selecionados[i.id]} onChange={() => toggleItem(i.id)} onClick={e => e.stopPropagation()} /></td>
+                                        <td>{cv ? <span className="badge" style={{ background:corCurva, color: cv.curva === 'B' ? 'var(--bg-dark)' : 'white' }}>{cv.curva}</span> : <span style={{ color:'var(--text-muted)' }}>—</span>}</td>
+                                        <td style={{ fontWeight:'600' }}>{i.product}</td>
+                                        <td style={{ fontSize:'0.85rem', color:'var(--text-secondary)' }}>{i.group || '-'}</td>
+                                        <td style={{ fontSize:'0.85rem' }}>{cv ? Math.round(cv.qtd) : '-'}</td>
+                                        <td style={{ fontWeight:'700' }}>{num(i.quantity)}</td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
                     {itensFiltrados.length > 400 && <div style={{ padding:'1rem', color:'var(--text-secondary)', fontSize:'0.85rem' }}>Mostrando 400 de {itensFiltrados.length} — use a busca para refinar.</div>}
@@ -5725,6 +5922,14 @@ function sugestaoCompra(item) {
     const q = num(item.quantity), m = num(item.minQuantity);
     if (q > m) return 0;
     return Math.max(m * 2 - q, 1);
+}
+
+// Sugestao de compra por curva ABC: minimo x peso da curva (A=1,75 B=1,5 C=1) - estoque atual
+function sugestaoCompraCurva(item, curva) {
+    const q = num(item.quantity), m = num(item.minQuantity);
+    const peso = PESO_CURVA[curva] || 1;
+    const alvo = Math.round(m * peso);
+    return Math.max(alvo - q, 0);
 }
 
 function InsumosPage({ storeId, insumos, movimentos, onSave, showToast }) {
