@@ -2394,13 +2394,20 @@ function agregarVendasCurva(linhas) {
     return { produtos: produtos, totalQtd: produtos.reduce(function(s,p){return s+p.qtd;},0), totalNfes: Object.keys(nfesGlobais).length };
 }
 
-// Classifica produtos em A/B/C por QUANTIDADE vendida (Pareto: A<=80%, B<=95%, C resto)
+// Classifica em A/B/C combinando QUANTIDADE vendida + RENTABILIDADE (faturamento).
+// Score = 50% da qtd normalizada + 50% do faturamento normalizado. Pareto sobre o score.
 function classificarCurvaABC(produtos) {
-    const ordenados = produtos.slice().sort(function(a,b){ return b.qtd - a.qtd || b.faturamento - a.faturamento; });
-    const total = ordenados.reduce(function(s,p){return s+num(p.qtd);},0) || 1;
+    const maxQtd = Math.max.apply(null, produtos.map(function(p){return num(p.qtd);}).concat([1]));
+    const maxFat = Math.max.apply(null, produtos.map(function(p){return num(p.faturamento);}).concat([1]));
+    const comScore = produtos.map(function(p) {
+        const score = (num(p.qtd) / maxQtd) * 50 + (num(p.faturamento) / maxFat) * 50;
+        return { ...p, score: score };
+    });
+    const ordenados = comScore.sort(function(a,b){ return b.score - a.score || b.qtd - a.qtd; });
+    const total = ordenados.reduce(function(s,p){return s + p.score;},0) || 1;
     let acum = 0;
     return ordenados.map(function(p, idx) {
-        acum += num(p.qtd);
+        acum += p.score;
         const pctAcum = (acum / total) * 100;
         let curva;
         if (pctAcum <= 80) curva = 'A';
@@ -2478,32 +2485,65 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, storeVend
     // pulando os que ja foram contados nas ultimas contagens (rodizio simples)
     // Seleciona os proximos N itens da curva A>B>C para uma loja, excluindo os ja usados (rodizio).
     // Retorna os PRODUTOS de estoque escolhidos (com curva anexada).
-    const selecionarItensCurva = (storeId, jaUsados, n) => {
+    // Monta a FILA MENSAL de contagem de uma loja: curva A entra 2x no mes, B e C entram 1x.
+    // Ordena por prioridade (A antes de B antes de C) e por relevancia (score/qtd).
+    const montarFilaMensal = (storeId) => {
         const curvaLoja = (storeVendasCurva[storeId] && storeVendasCurva[storeId].produtos) ? classificarCurvaABC(storeVendasCurva[storeId].produtos) : [];
         if (curvaLoja.length === 0) return [];
         const estoque = storeEstoques[storeId] || [];
         const estoquePorNome = {};
         estoque.forEach(p => { estoquePorNome[(p.product || '').trim().toUpperCase()] = p; });
         const ordem = { A: 0, B: 1, C: 2 };
-        const candidatos = curvaLoja
-            .filter(p => estoquePorNome[(p.product || '').trim().toUpperCase()])
-            .sort((a, b) => (ordem[a.curva] - ordem[b.curva]) || (b.qtd - a.qtd));
-        const naoUsados = candidatos.filter(p => !jaUsados[(p.product || '').trim().toUpperCase()]);
-        // se acabaram os nao usados, reinicia o ciclo (volta a permitir repetir)
-        const pool = naoUsados.length >= n ? naoUsados : candidatos;
-        return pool.slice(0, n).map(p => {
+        // so produtos que existem no estoque da loja
+        const validos = curvaLoja.filter(p => estoquePorNome[(p.product || '').trim().toUpperCase()]);
+        // fila: cada item entra segundo seu peso de contagem (A=2, B=1, C=1)
+        const contagensPorCurva = { A: 2, B: 1, C: 1 };
+        const fila = [];
+        validos.forEach(p => {
             const prod = estoquePorNome[(p.product || '').trim().toUpperCase()];
-            return { prod, curva: p.curva };
-        }).filter(x => x.prod);
+            const vezes = contagensPorCurva[p.curva] || 1;
+            for (let k = 0; k < vezes; k++) fila.push({ prod, curva: p.curva, passada: k + 1, score: p.score || p.qtd || 0 });
+        });
+        // ordena: 1a passada de todos por prioridade, depois 2a passada (curva A) no fim
+        return fila.sort((a, b) => (a.passada - b.passada) || (ordem[a.curva] - ordem[b.curva]) || (b.score || 0) - (a.score || 0));
+    };
+
+    // Seleciona os proximos N itens ainda nao usados no ciclo (para geracao pontual de 1 dia)
+    const selecionarItensCurva = (storeId, jaUsados, n) => {
+        const fila = montarFilaMensal(storeId);
+        if (fila.length === 0) return [];
+        // conta quantas vezes cada produto ja foi usado
+        const usoCount = {};
+        Object.keys(jaUsados).forEach(k => { usoCount[k] = jaUsados[k]; });
+        const escolhidos = [];
+        for (const item of fila) {
+            if (escolhidos.length >= n) break;
+            const key = (item.prod.product || '').trim().toUpperCase();
+            const jaUsou = usoCount[key] || 0;
+            // A pode ser usado ate 2x; B/C 1x. passada indica qual ocorrencia e.
+            if (jaUsou >= item.passada) continue;
+            escolhidos.push(item);
+            usoCount[key] = item.passada;
+        }
+        // se ainda faltam (fila esgotou), completa reiniciando
+        if (escolhidos.length < n) {
+            for (const item of fila) {
+                if (escolhidos.length >= n) break;
+                if (escolhidos.indexOf(item) === -1) escolhidos.push(item);
+            }
+        }
+        return escolhidos.slice(0, n);
     };
 
     const gerarContagemAuto = () => {
         if (curvaClassificada.length === 0) { showToast('Importe a planilha de vendas desta loja primeiro', 'error'); return; }
-        const recentes = {};
-        (storeInventariosDiarios[lojaSel] || []).slice(0, 5).forEach(d => {
-            (d.itens || []).forEach(i => { recentes[(i.product || '').trim().toUpperCase()] = true; });
+        // conta quantas vezes cada item ja foi contado no MES atual (para respeitar A=2x)
+        const mesAtual = todayStr.slice(0, 7);
+        const contadorMes = {};
+        (storeInventariosDiarios[lojaSel] || []).filter(d => d.date && d.date.slice(0, 7) === mesAtual).forEach(d => {
+            (d.itens || []).forEach(i => { const k = (i.product || '').trim().toUpperCase(); contadorMes[k] = (contadorMes[k] || 0) + 1; });
         });
-        const escolhidos = selecionarItensCurva(lojaSel, recentes, 15);
+        const escolhidos = selecionarItensCurva(lojaSel, contadorMes, 15);
         if (escolhidos.length === 0) { showToast('Nenhum produto da curva bate com o estoque desta loja', 'error'); return; }
         const sel = {};
         escolhidos.forEach(x => { sel[x.prod.id] = true; });
@@ -2558,14 +2598,10 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, storeVend
             for (const storeId of lojasAlvo) {
                 const storeName = (STORES.find(s => s.id === storeId) || {}).name;
                 const usados = {};
-                // ja marca como usados os itens de contagens recentes existentes
-                (storeInventariosDiarios[storeId] || []).slice(0, 3).forEach(d => {
-                    (d.itens || []).forEach(i => { usados[(i.product || '').trim().toUpperCase()] = true; });
-                });
                 for (const data of datas) {
                     const escolhidos = selecionarItensCurva(storeId, usados, 15);
                     if (escolhidos.length === 0) continue;
-                    escolhidos.forEach(x => { usados[(x.prod.product || '').trim().toUpperCase()] = true; });
+                    escolhidos.forEach(x => { const k = (x.prod.product || '').trim().toUpperCase(); usados[k] = (usados[k] || 0) + 1; });
                     const itens = escolhidos.map(x => ({ id: x.prod.id, product: x.prod.product, barcode: x.prod.barcode || '', group: x.prod.group || '', curva: x.curva, estoqueSistema: 0, contado: null, ajuste: null }));
                     // docId unico por loja+data (contagem-auto) para nao colidir com contagem manual do mesmo dia
                     await window.TrocaDB.salvarInventarioDiario(storeId, data + '-auto', {
@@ -2585,6 +2621,10 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, storeVend
     const [criando, setCriando] = useState(false);
     const [refMonth, setRefMonth] = useState(todayStr.slice(0, 7));
     const [lojaFiltroDash, setLojaFiltroDash] = useState('all');
+    const [dashModo, setDashModo] = useState('geral'); // geral | periodo | contagem
+    const [dashPerIni, setDashPerIni] = useState(todayStr.slice(0, 8) + '01');
+    const [dashPerFim, setDashPerFim] = useState(todayStr);
+    const [dashContagemId, setDashContagemId] = useState('');
     const [editandoDoc, setEditandoDoc] = useState(null); // contagem pendente em edicao
     const [ajustandoDoc, setAjustandoDoc] = useState(null); // contagem enviada sendo ajustada pelo Admin
     const [sistemaValores, setSistemaValores] = useState({}); // { itemId: qtd que o Bruno enxerga no sistema }
@@ -2647,11 +2687,23 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, storeVend
         catch(e) { console.error(e); showToast('Erro ao excluir', 'error'); }
     };
 
-    // Dashboard de divergencia (todas as contagens concluidas, filtravel por mes/loja)
+    // Todas as contagens concluidas (base de todos os modos)
+    const concluidasAll = useMemo(() => Object.values(storeInventariosDiarios || {}).flat().filter(d => d.status === 'concluido'), [storeInventariosDiarios]);
+
+    // Lista de contagens para o seletor do modo "por contagem"
+    const contagensParaSelecao = useMemo(() => concluidasAll
+        .filter(d => lojaFiltroDash === 'all' || d.storeId === lojaFiltroDash)
+        .sort((a, b) => (b.date > a.date ? 1 : -1)), [concluidasAll, lojaFiltroDash]);
+
+    // Dashboard: filtra conforme o modo (geral = tudo, periodo = entre datas, contagem = 1 especifica)
     const todasConcluidas = useMemo(() => {
-        return Object.values(storeInventariosDiarios || {}).flat()
-            .filter(d => d.status === 'concluido' && d.date && d.date.slice(0, 7) === refMonth && (lojaFiltroDash === 'all' || d.storeId === lojaFiltroDash));
-    }, [storeInventariosDiarios, refMonth, lojaFiltroDash]);
+        return concluidasAll.filter(d => {
+            if (lojaFiltroDash !== 'all' && d.storeId !== lojaFiltroDash) return false;
+            if (dashModo === 'contagem') return (d.storeId + '-' + d.id) === dashContagemId;
+            if (dashModo === 'periodo') return d.date && d.date >= dashPerIni && d.date <= dashPerFim;
+            return true; // geral = todas
+        });
+    }, [concluidasAll, lojaFiltroDash, dashModo, dashContagemId, dashPerIni, dashPerFim]);
 
     const divergenciaPorLoja = useMemo(() => {
         const map = {};
@@ -2816,7 +2868,7 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, storeVend
                 'Lojas Afetadas': p.qtdLojas, 'Total Ajustado (absoluto)': p.somaAbs, 'Saldo Liquido': p.saldo
             }))), 'Produtos que Mais Divergem');
         }
-        XLSX.writeFile(wb, 'divergencia-estoque-' + refMonth + '.xlsx');
+        XLSX.writeFile(wb, 'divergencia-estoque-' + dashModo + '-' + todayStr + '.xlsx');
     };
 
     if (ajustandoDoc) {
@@ -3154,19 +3206,51 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, storeVend
                     <h2 className="card-title" style={{ margin:0 }}>📊 Dashboard de Divergência de Estoque</h2>
                     <button className="btn btn-success btn-small" onClick={handleExportDashboard}>📥 Excel</button>
                 </div>
+                <div className="admin-cal-filter-bar">
+                    <span style={{ fontSize:'0.85rem', color:'var(--text-secondary)', fontWeight:'600' }}>Ver:</span>
+                    <button className={`admin-cal-filter-btn ${dashModo === 'geral' ? 'active' : ''}`} onClick={() => setDashModo('geral')}>📈 Geral (tudo)</button>
+                    <button className={`admin-cal-filter-btn ${dashModo === 'periodo' ? 'active' : ''}`} onClick={() => setDashModo('periodo')}>📅 Por Período</button>
+                    <button className={`admin-cal-filter-btn ${dashModo === 'contagem' ? 'active' : ''}`} onClick={() => setDashModo('contagem')}>📋 Por Contagem</button>
+                </div>
                 <div className="form-row">
-                    <div className="form-group"><label className="form-label">Mês</label><input type="month" className="form-input" value={refMonth} onChange={e => setRefMonth(e.target.value)} /></div>
                     <div className="form-group">
                         <label className="form-label">Loja</label>
-                        <select className="form-select" value={lojaFiltroDash} onChange={e => setLojaFiltroDash(e.target.value)}>
+                        <select className="form-select" value={lojaFiltroDash} onChange={e => { setLojaFiltroDash(e.target.value); setDashContagemId(''); }}>
                             <option value="all">🏪 Todas as Lojas</option>
                             {STORES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                         </select>
                     </div>
+                    {dashModo === 'periodo' && <>
+                        <div className="form-group"><label className="form-label">De</label><input type="date" className="form-input" value={dashPerIni} onChange={e => setDashPerIni(e.target.value)} /></div>
+                        <div className="form-group"><label className="form-label">Até</label><input type="date" className="form-input" value={dashPerFim} onChange={e => setDashPerFim(e.target.value)} /></div>
+                    </>}
+                    {dashModo === 'contagem' && (
+                        <div className="form-group" style={{ flex: 2 }}>
+                            <label className="form-label">Contagem</label>
+                            <select className="form-select" value={dashContagemId} onChange={e => setDashContagemId(e.target.value)}>
+                                <option value="">Selecione uma contagem...</option>
+                                {contagensParaSelecao.map(d => <option key={d.storeId + '-' + d.id} value={d.storeId + '-' + d.id}>{(parseDateKey(d.date) ? parseDateKey(d.date).toLocaleDateString('pt-BR') : d.date)} — {d.storeName} ({(d.itens||[]).length} itens)</option>)}
+                            </select>
+                        </div>
+                    )}
                 </div>
-                {piorLoja && piorLoja.pctDivergencia > 0 && (
+                {(() => {
+                    const totContagens = todasConcluidas.length;
+                    const totItens = todasConcluidas.reduce((s, d) => s + (d.itens || []).length, 0);
+                    const totDiv = todasConcluidas.reduce((s, d) => s + (d.itens || []).filter(i => num(i.ajuste) !== 0).length, 0);
+                    const pctGeral = totItens > 0 ? (totDiv / totItens) * 100 : 0;
+                    return (
+                        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))', gap:'1rem', marginBottom:'1.5rem' }}>
+                            <div className="cal-summary-item"><span className="cal-summary-value">{totContagens}</span><div className="cal-summary-label">Contagens</div></div>
+                            <div className="cal-summary-item"><span className="cal-summary-value">{totItens}</span><div className="cal-summary-label">Itens Conferidos</div></div>
+                            <div className="cal-summary-item"><span className="cal-summary-value" style={{ color: totDiv > 0 ? 'var(--danger)' : 'var(--success)' }}>{totDiv}</span><div className="cal-summary-label">Itens Divergentes</div></div>
+                            <div className="cal-summary-item" style={{ border:'1px solid ' + (pctGeral > 20 ? 'var(--danger)' : pctGeral > 5 ? 'var(--warning)' : 'var(--success)') }}><span className="cal-summary-value" style={{ color: pctGeral > 20 ? 'var(--danger)' : pctGeral > 5 ? 'var(--warning)' : 'var(--success)' }}>{pctGeral.toFixed(1)}%</span><div className="cal-summary-label">% Divergência Geral</div></div>
+                        </div>
+                    );
+                })()}
+                {dashModo !== 'contagem' && piorLoja && piorLoja.pctDivergencia > 0 && (
                     <div style={{ padding:'1rem', background:'rgba(239,71,111,0.1)', border:'1px solid var(--danger)', borderRadius:'12px', marginBottom:'1.5rem' }}>
-                        ⚠️ <strong>{piorLoja.nome}</strong> é a loja com maior divergência no período: <strong style={{ color:'var(--danger)' }}>{piorLoja.pctDivergencia.toFixed(1)}%</strong> dos itens contados ({piorLoja.itensDivergentes} de {piorLoja.itensContados}).
+                        ⚠️ <strong>{piorLoja.nome}</strong> é a loja com maior divergência: <strong style={{ color:'var(--danger)' }}>{piorLoja.pctDivergencia.toFixed(1)}%</strong> dos itens ({piorLoja.itensDivergentes} de {piorLoja.itensContados}).
                     </div>
                 )}
                 {divergenciaPorLoja.length > 0 ? divergenciaPorLoja.map((l, i) => (
