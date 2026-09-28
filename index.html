@@ -2238,7 +2238,10 @@ function InventarioDiarioPage({ storeId, storeName, inventory, onSave, inventari
     const [saving, setSaving] = useState(false);
     const [busca, setBusca] = useState('');
 
-    const pendentes = (inventariosDiarios || []).filter(d => d.status === 'pendente').sort((a, b) => (a.date > b.date ? 1 : -1));
+    const todasPend = (inventariosDiarios || []).filter(d => d.status === 'pendente');
+    // Liberadas para contar HOJE: data <= hoje (ou sem data). Agendadas: data futura (só cronograma)
+    const pendentes = todasPend.filter(d => !d.date || d.date <= todayStr).sort((a, b) => (a.date > b.date ? 1 : -1));
+    const agendadasFuturas = todasPend.filter(d => d.date && d.date > todayStr).sort((a, b) => (a.date > b.date ? 1 : -1));
     const enviadas = (inventariosDiarios || []).filter(d => d.status === 'aguardando_ajuste' || d.status === 'concluido').sort((a, b) => (b.date > a.date ? 1 : -1));
 
     const abrirContagem = (doc) => {
@@ -2326,19 +2329,38 @@ function InventarioDiarioPage({ storeId, storeName, inventory, onSave, inventari
                 <p className="page-subtitle">Contagens de estoque selecionadas pela Administração para esta loja</p>
             </div>
             <div className="card" style={{ border: pendentes.length > 0 ? '2px solid var(--warning)' : undefined }}>
-                <h2 className="card-title">🟡 Contagens Pendentes ({pendentes.length})</h2>
-                {pendentes.length > 0 ? pendentes.map(doc => (
-                    <div key={doc.id} className="item-card">
-                        <div className="item-info">
-                            <div className="item-description">{parseDateKey(doc.date) ? parseDateKey(doc.date).toLocaleDateString('pt-BR') : doc.date}</div>
-                            <div className="item-condition">{(doc.itens || []).length} item(ns) para contar{doc.criadoPor ? ' • solicitado por ' + doc.criadoPor : ''}</div>
+                <h2 className="card-title">🟡 Contagens para Contar ({pendentes.length})</h2>
+                {pendentes.length > 0 ? pendentes.map(doc => {
+                    const atrasada = doc.date && doc.date < todayStr;
+                    const hoje = doc.date === todayStr;
+                    return (
+                        <div key={doc.id} className="item-card">
+                            <div className="item-info">
+                                <div className="item-description">{hoje ? '📍 Hoje' : (parseDateKey(doc.date) ? parseDateKey(doc.date).toLocaleDateString('pt-BR') : doc.date)}{atrasada && <span className="badge badge-danger" style={{ marginLeft:'0.5rem' }}>atrasada</span>}</div>
+                                <div className="item-condition">{(doc.itens || []).length} item(ns) para contar{doc.criadoPor ? ' • ' + doc.criadoPor : ''}</div>
+                            </div>
+                            <button className="btn btn-primary btn-small" onClick={() => abrirContagem(doc)}>📋 Iniciar Contagem</button>
                         </div>
-                        <button className="btn btn-primary btn-small" onClick={() => abrirContagem(doc)}>📋 Iniciar Contagem</button>
-                    </div>
-                )) : (
-                    <div style={{ color:'var(--text-secondary)' }}>Nenhuma contagem pendente no momento 🎉</div>
+                    );
+                }) : (
+                    <div style={{ color:'var(--text-secondary)' }}>Nenhuma contagem para hoje 🎉</div>
                 )}
             </div>
+            {agendadasFuturas.length > 0 && (
+                <div className="card">
+                    <h2 className="card-title">🗓️ Cronograma da Semana ({agendadasFuturas.length})</h2>
+                    <p style={{ color:'var(--text-secondary)', fontSize:'0.9rem', marginTop:'-0.75rem', marginBottom:'1.5rem' }}>Contagens já programadas pela Administração — ficam disponíveis para contar no dia certo.</p>
+                    {agendadasFuturas.map(doc => (
+                        <div key={doc.id} className="item-card">
+                            <div className="item-info">
+                                <div className="item-description">{parseDateKey(doc.date) ? parseDateKey(doc.date).toLocaleDateString('pt-BR', { weekday:'long', day:'2-digit', month:'2-digit' }) : doc.date}</div>
+                                <div className="item-condition">{(doc.itens || []).length} item(ns) programado(s)</div>
+                            </div>
+                            <span className="badge badge-pending">⏳ No dia certo</span>
+                        </div>
+                    ))}
+                </div>
+            )}
             <div className="card">
                 <h2 className="card-title">📜 Contagens Enviadas</h2>
                 {enviadas.length > 0 ? (
@@ -2493,18 +2515,22 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, storeVend
         const estoque = storeEstoques[storeId] || [];
         const estoquePorNome = {};
         estoque.forEach(p => { estoquePorNome[(p.product || '').trim().toUpperCase()] = p; });
+        const temEstoque = estoque.length > 0;
         const ordem = { A: 0, B: 1, C: 2 };
-        // so produtos que existem no estoque da loja
-        const validos = curvaLoja.filter(p => estoquePorNome[(p.product || '').trim().toUpperCase()]);
-        // fila: cada item entra segundo seu peso de contagem (A=2, B=1, C=1)
+        // se a loja tem estoque carregado, cruza; senao usa os produtos da propria curva (fallback)
+        const validos = temEstoque
+            ? curvaLoja.filter(p => estoquePorNome[(p.product || '').trim().toUpperCase()])
+            : curvaLoja;
         const contagensPorCurva = { A: 2, B: 1, C: 1 };
         const fila = [];
         validos.forEach(p => {
-            const prod = estoquePorNome[(p.product || '').trim().toUpperCase()];
+            const key = (p.product || '').trim().toUpperCase();
+            const prodEstoque = estoquePorNome[key];
+            // usa o produto do estoque se existir; senao cria um item a partir da curva
+            const prod = prodEstoque || { id: 'curva-' + key.replace(/[^A-Z0-9]/g, '').slice(0, 20) + '-' + (p.rank || 0), product: p.product, barcode: '', group: p.linha || '', quantity: 0 };
             const vezes = contagensPorCurva[p.curva] || 1;
             for (let k = 0; k < vezes; k++) fila.push({ prod, curva: p.curva, passada: k + 1, score: p.score || p.qtd || 0 });
         });
-        // ordena: 1a passada de todos por prioridade, depois 2a passada (curva A) no fim
         return fila.sort((a, b) => (a.passada - b.passada) || (ordem[a.curva] - ordem[b.curva]) || (b.score || 0) - (a.score || 0));
     };
 
@@ -2593,27 +2619,37 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, storeVend
                 guard++;
             }
             const novasDatasProg = [...programacao];
-            let totalContagens = 0;
+            let totalContagens = 0, erros = 0, semItens = 0;
             // para cada loja, mantem o rodizio acumulado ao longo dos dias
             for (const storeId of lojasAlvo) {
                 const storeName = (STORES.find(s => s.id === storeId) || {}).name;
                 const usados = {};
                 for (const data of datas) {
                     const escolhidos = selecionarItensCurva(storeId, usados, 15);
-                    if (escolhidos.length === 0) continue;
+                    if (escolhidos.length === 0) { semItens++; continue; }
                     escolhidos.forEach(x => { const k = (x.prod.product || '').trim().toUpperCase(); usados[k] = (usados[k] || 0) + 1; });
                     const itens = escolhidos.map(x => ({ id: x.prod.id, product: x.prod.product, barcode: x.prod.barcode || '', group: x.prod.group || '', curva: x.curva, estoqueSistema: 0, contado: null, ajuste: null }));
-                    // docId unico por loja+data (contagem-auto) para nao colidir com contagem manual do mesmo dia
-                    await window.TrocaDB.salvarInventarioDiario(storeId, data + '-auto', {
-                        date: data, storeName, criadoPor: 'Programação Semanal', itens, status: 'pendente', criadoEm: new Date().toLocaleString('pt-BR'), auto: true
-                    });
-                    totalContagens++;
-                    if (!novasDatasProg.some(p => p.data === data)) novasDatasProg.push({ data, criadoEm: new Date().toLocaleString('pt-BR') });
+                    try {
+                        // docId unico por loja+data para nao colidir com contagem manual do mesmo dia
+                        await window.TrocaDB.salvarInventarioDiario(storeId, data + '-auto', {
+                            date: data, storeId, storeName, criadoPor: 'Programação Semanal', itens, status: 'pendente', criadoEm: new Date().toLocaleString('pt-BR'), auto: true
+                        });
+                        totalContagens++;
+                        if (!novasDatasProg.some(p => p.data === data)) novasDatasProg.push({ data, criadoEm: new Date().toLocaleString('pt-BR') });
+                    } catch(errDoc) { console.error('Erro ao salvar contagem ' + storeName + ' ' + data + ':', errDoc); erros++; }
                 }
             }
-            await window.TrocaDB.salvarProgramacaoContagem(novasDatasProg.sort((a, b) => (a.data > b.data ? 1 : -1)));
-            showToast(totalContagens + ' contagem(ns) programada(s)! As lojas verão a do dia certo. 🚀');
-        } catch(e) { console.error(e); showToast('Erro ao gerar semana', 'error'); }
+            try { await window.TrocaDB.salvarProgramacaoContagem(novasDatasProg.sort((a, b) => (a.data > b.data ? 1 : -1))); } catch(e2) { console.error(e2); }
+            if (totalContagens > 0) {
+                let msg = totalContagens + ' contagem(ns) programada(s)! As lojas verão a do dia certo. 🚀';
+                if (erros > 0) msg += ' (' + erros + ' falharam)';
+                showToast(msg);
+            } else if (semItens > 0) {
+                showToast('Nenhuma contagem criada — as lojas não têm produtos na curva/estoque. Confira a importação de vendas.', 'error');
+            } else {
+                showToast('Nenhuma contagem foi criada. Verifique a conexão.', 'error');
+            }
+        } catch(e) { console.error(e); showToast('Erro ao gerar semana: ' + (e.message || e), 'error'); }
         finally { setGerandoSemana(false); }
     };
     const [busca, setBusca] = useState('');
