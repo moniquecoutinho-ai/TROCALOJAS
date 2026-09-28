@@ -398,6 +398,25 @@
         await db.collection("stores").doc(storeId).collection("inventarios_diarios").doc(docId).delete();
     }
 
+    // Diagnostico: testa gravacao + leitura na subcolecao de inventarios de uma loja
+    async function testarConexaoInventario(storeId) {
+        const ref = db.collection("stores").doc(storeId).collection("inventarios_diarios").doc("__teste_conexao__");
+        const agora = new Date().toISOString();
+        try {
+            await ref.set({ teste: true, quando: agora, date: agora.split("T")[0], status: "teste" });
+        } catch (e) {
+            return { ok: false, etapa: "GRAVACAO", erro: e.message || String(e) };
+        }
+        try {
+            const snap = await ref.get();
+            if (!snap.exists) return { ok: false, etapa: "LEITURA", erro: "Documento gravado mas não encontrado na leitura" };
+            await ref.delete();
+            return { ok: true, quando: agora };
+        } catch (e) {
+            return { ok: false, etapa: "LEITURA", erro: e.message || String(e) };
+        }
+    }
+
     // Programacao de contagens (datas agendadas pelo Admin, global)
     async function salvarProgramacaoContagem(programacao) {
         const ref = db.collection("config").doc("programacao_contagem");
@@ -412,21 +431,29 @@
     }
 
     function ouvirInventariosDiarios(storeId, callback) {
-        const ref = db.collection("stores").doc(storeId).collection("inventarios_diarios").orderBy("date", "desc");
+        // SEM orderBy: evita bloqueio quando algum doc nao tem o campo 'date'. Ordena no JS.
+        const ref = db.collection("stores").doc(storeId).collection("inventarios_diarios");
         return ref.onSnapshot(function(snap) {
-            callback(snap.docs.map(function(d) { return { ...d.data(), id: d.id }; }));
-        }, function(err) { console.error("Firebase inventarios diarios erro:", err); callback([]); });
+            const docs = snap.docs.map(function(d) { return { ...d.data(), id: d.id }; });
+            docs.sort(function(a, b) { return (b.date || '') > (a.date || '') ? 1 : -1; });
+            callback(docs);
+        }, function(err) {
+            console.error("Firebase inventarios diarios erro:", err);
+            window.__INV_ERRO__ = err.message || String(err);
+            callback([]);
+        });
     }
 
     function ouvirTodosInventariosDiarios(lojas, callback) {
         const unsubscribes = lojas.map(function(loja) {
-            const ref = db.collection("stores").doc(loja.id).collection("inventarios_diarios").orderBy("date", "desc");
+            const ref = db.collection("stores").doc(loja.id).collection("inventarios_diarios");
             return ref.onSnapshot(function(snap) {
                 const docs = snap.docs.map(function(d) {
                     return { ...d.data(), id: d.id, storeId: loja.id, storeName: loja.name };
                 });
+                docs.sort(function(a, b) { return (b.date || '') > (a.date || '') ? 1 : -1; });
                 callback(loja.id, docs);
-            }, function(err) { console.error("Firebase inventarios diarios erro " + loja.id + ":", err); });
+            }, function(err) { console.error("Firebase inventarios diarios erro " + loja.id + ":", err); window.__INV_ERRO__ = err.message || String(err); });
         });
         return function() { unsubscribes.forEach(function(u) { u && u(); }); };
     }
@@ -845,7 +872,7 @@
         salvarTroca, atualizarStatus, atualizarTroca, deletarTroca,
         ouvirTrocas, ouvirTodasLojas, salvarEstoque, ouvirEstoque, getEstoque,
         seedInventoryAllStores, salvarCatalogoMaster, ouvirCatalogoMaster, sincronizarCatalogoLojas,
-        salvarInventarioDiario, deletarInventarioDiario, ouvirInventariosDiarios, ouvirTodosInventariosDiarios, ouvirTodosEstoques,
+        salvarInventarioDiario, deletarInventarioDiario, ouvirInventariosDiarios, ouvirTodosInventariosDiarios, ouvirTodosEstoques, testarConexaoInventario,
         salvarProgramacaoContagem, ouvirProgramacaoContagem,
         salvarVendasCurva, ouvirVendasCurva, ouvirTodasVendasCurva,
         salvarFechamento, getFechamento, ouvirTodosFechamentos, ouvirFechamentosLoja,
@@ -2595,6 +2622,23 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, storeVend
     const [progDias, setProgDias] = useState('5');
     const [progIncluiSab, setProgIncluiSab] = useState(false);
     const [gerandoSemana, setGerandoSemana] = useState(false);
+    const [diagResultado, setDiagResultado] = useState(null);
+    const [diagRodando, setDiagRodando] = useState(false);
+
+    const rodarDiagnostico = async () => {
+        setDiagRodando(true);
+        setDiagResultado(null);
+        const linhas = [];
+        for (const s of STORES) {
+            const r = await window.TrocaDB.testarConexaoInventario(s.id);
+            // conta contagens que o Admin ja enxerga desta loja
+            const contagensVistas = (storeInventariosDiarios[s.id] || []).length;
+            const pendentesVistas = (storeInventariosDiarios[s.id] || []).filter(d => d.status === 'pendente').length;
+            linhas.push({ loja: s.name, ok: r.ok, etapa: r.etapa, erro: r.erro, contagensVistas, pendentesVistas });
+        }
+        setDiagResultado(linhas);
+        setDiagRodando(false);
+    };
 
     const gerarSemana = async () => {
         const lojasAlvo = progLojaSel === 'all' ? STORES.map(s => s.id) : [progLojaSel];
@@ -3012,6 +3056,33 @@ function AdminInventarioPage({ storeEstoques, storeInventariosDiarios, storeVend
             <div className="header">
                 <h1 className="page-title">📋 Inventário Diário</h1>
                 <p className="page-subtitle">Escolha os itens que cada loja vai contar hoje e acompanhe a divergência de estoque</p>
+            </div>
+            <div className="card" style={{ border:'1px solid var(--primary)' }}>
+                <h2 className="card-title">🩺 Diagnóstico de Conexão</h2>
+                <p style={{ color:'var(--text-secondary)', fontSize:'0.9rem', marginTop:'-0.75rem', marginBottom:'1rem' }}>Se as contagens não aparecem nas lojas, clique aqui para testar se o sistema consegue gravar e ler no banco de dados de cada loja.</p>
+                <button className="btn btn-secondary" onClick={rodarDiagnostico} disabled={diagRodando}>{diagRodando ? '⏳ Testando...' : '🩺 Testar Conexão de Todas as Lojas'}</button>
+                {diagResultado && (
+                    <div className="table-container" style={{ marginTop:'1.5rem' }}>
+                        <table className="table">
+                            <thead><tr><th>Loja</th><th>Gravar/Ler no banco</th><th>Contagens que o Admin vê</th><th>Pendentes</th></tr></thead>
+                            <tbody>
+                                {diagResultado.map((l, i) => (
+                                    <tr key={i}>
+                                        <td style={{ fontWeight:'700' }}>{l.loja}</td>
+                                        <td>{l.ok ? <span className="badge badge-confirmed">✅ OK</span> : <span className="badge badge-danger" title={l.erro}>❌ Falhou ({l.etapa}): {(l.erro || '').slice(0, 60)}</span>}</td>
+                                        <td style={{ fontWeight:'700' }}>{l.contagensVistas}</td>
+                                        <td style={{ fontWeight:'700', color: l.pendentesVistas > 0 ? 'var(--warning)' : 'var(--text-secondary)' }}>{l.pendentesVistas}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                        <div style={{ marginTop:'1rem', fontSize:'0.85rem', color:'var(--text-secondary)' }}>
+                            {diagResultado.every(l => l.ok)
+                                ? '✅ O banco está gravando e lendo normalmente. Se a loja não vê a contagem, confirme que a data programada já chegou (contagens futuras ficam no "Cronograma da Semana" até o dia).'
+                                : '❌ Há falha de gravação/leitura — provavelmente as REGRAS DE SEGURANÇA do Firestore estão bloqueando. No Firebase Console → Firestore → Regras, permita leitura/escrita nas subcoleções de stores.'}
+                        </div>
+                    </div>
+                )}
             </div>
             <div className="card" style={{ border:'1px solid var(--primary)' }}>
                 <h2 className="card-title">📊 Importar Vendas & Curva ABC</h2>
