@@ -400,7 +400,7 @@
 
     // Diagnostico: testa gravacao + leitura na subcolecao de inventarios de uma loja
     async function testarConexaoInventario(storeId) {
-        const ref = db.collection("stores").doc(storeId).collection("inventarios_diarios").doc("__teste_conexao__");
+        const ref = db.collection("stores").doc(storeId).collection("inventarios_diarios").doc("zzz_teste_conexao");
         const agora = new Date().toISOString();
         try {
             await ref.set({ teste: true, quando: agora, date: agora.split("T")[0], status: "teste" });
@@ -2294,14 +2294,13 @@ function InventarioDiarioPage({ storeId, storeName, inventory, onSave, inventari
         try {
             const itensAtualizados = (contagemAberta.itens || []).map(i => {
                 const contado = parseInt(valores[i.id]) || 0;
-                return { ...i, contado, ajuste: contado - num(i.estoqueSistema), ajustado: false };
+                return { ...i, contado, ajustado: false };
             });
-            // A loja SO envia a contagem — o ajuste de estoque e feito pelo Admin
+            // A loja SO envia a contagem fisica — a conferencia com o sistema e o ajuste sao feitos pelo Admin
             await window.TrocaDB.salvarInventarioDiario(storeId, contagemAberta.id, {
                 itens: itensAtualizados, status: 'aguardando_ajuste', finalizadoEm: new Date().toLocaleString('pt-BR')
             });
-            const divergentes = itensAtualizados.filter(i => i.ajuste !== 0).length;
-            showToast('Contagem enviada para a Administração! ' + divergentes + ' item(ns) com divergência ✅');
+            showToast('Contagem enviada para a Administração! ✅');
             setContagemAberta(null);
         } catch(e) { console.error(e); showToast('Erro ao enviar contagem', 'error'); }
         finally { setSaving(false); }
@@ -2323,27 +2322,27 @@ function InventarioDiarioPage({ storeId, storeName, inventory, onSave, inventari
                     <div className="form-group" style={{ marginBottom:'1.25rem' }}>
                         <input className="form-input" value={busca} onChange={e => setBusca(e.target.value)} placeholder="🔍 Buscar item nesta contagem..." />
                     </div>
+                    <div style={{ padding:'0.75rem 1rem', background:'var(--bg-dark)', borderRadius:'10px', marginBottom:'1.25rem', fontSize:'0.88rem', color:'var(--text-secondary)' }}>
+                        Conte fisicamente cada produto e informe a quantidade encontrada. É só isso — a conferência com o sistema e o ajuste ficam com a Administração.
+                    </div>
                     <div className="table-container">
                         <table className="table">
-                            <thead><tr><th>Produto</th><th>Código</th><th>Sistema</th><th>Contagem Física</th><th>Ajuste</th></tr></thead>
+                            <thead><tr><th>Produto</th><th>Código</th><th>Contagem Física</th></tr></thead>
                             <tbody>
                                 {itensFiltrados.map(i => {
                                     const contadoNum = somenteLeitura ? num(i.contado) : (valores[i.id] !== '' && valores[i.id] !== undefined ? parseInt(valores[i.id]) : null);
-                                    const ajuste = somenteLeitura ? num(i.ajuste) : (contadoNum !== null ? contadoNum - num(i.estoqueSistema) : null);
                                     return (
                                         <tr key={i.id}>
                                             <td style={{ fontWeight:'600' }}>{i.product}</td>
                                             <td style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>{i.barcode || '-'}</td>
-                                            <td>{num(i.estoqueSistema)}</td>
-                                            <td>{somenteLeitura ? <strong>{contadoNum}</strong> : <input type="number" min="0" className="form-input" style={{ width:'100px' }} value={valores[i.id] ?? ''} onChange={e => setValores(p => ({ ...p, [i.id]: e.target.value }))} />}</td>
-                                            <td style={{ fontWeight:'700', color: ajuste === null ? 'var(--text-secondary)' : ajuste === 0 ? 'var(--success)' : ajuste > 0 ? 'var(--primary)' : 'var(--danger)' }}>{ajuste === null ? '-' : (ajuste > 0 ? '+' : '') + ajuste}</td>
+                                            <td>{somenteLeitura ? <strong>{contadoNum}</strong> : <input type="number" min="0" className="form-input" style={{ width:'110px' }} value={valores[i.id] ?? ''} onChange={e => setValores(p => ({ ...p, [i.id]: e.target.value }))} placeholder="qtd" />}</td>
                                         </tr>
                                     );
                                 })}
                             </tbody>
                         </table>
                     </div>
-                    {!somenteLeitura && <button className="btn btn-success" style={{ width:'100%', marginTop:'1.5rem' }} onClick={handleFinalizar} disabled={saving}>{saving ? '⏳ Enviando...' : '✅ Finalizar Contagem e Ajustar Estoque'}</button>}
+                    {!somenteLeitura && <button className="btn btn-success" style={{ width:'100%', marginTop:'1.5rem' }} onClick={handleFinalizar} disabled={saving}>{saving ? '⏳ Enviando...' : '✅ Finalizar e Enviar Contagem'}</button>}
                 </div>
             </div>
         );
