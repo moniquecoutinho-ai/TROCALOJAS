@@ -522,7 +522,9 @@
             catProdutos[p.product.trim().toUpperCase()] = true;
             const old = byKey[p.product.trim().toUpperCase()];
             if (old) {
-                return { ...p, quantity: old.quantity || 0, price: old.price || 0, minQuantity: old.minQuantity || 3 };
+                // catalogo NOVO manda em nome/grupo/preco/barcode; so a QUANTIDADE (fisico da loja) e preservada.
+                // preco: usa o novo se tiver (>0); senao mantem o que a loja ja tinha.
+                return { ...p, quantity: old.quantity || 0, price: (num(p.price) > 0 ? p.price : (old.price || 0)), minQuantity: p.minQuantity || old.minQuantity || 3 };
             }
             return p;
         });
@@ -1211,9 +1213,9 @@ function App() {
             </aside>
             <main className="main-content">
                 {currentPage === 'new-exchange' &&
-                    <NewExchangePage storeId={currentStore.id} storeName={currentStore.name} inventory={inventory} showToast={showToast} />}
+                    <NewExchangePage storeId={currentStore.id} storeName={currentStore.name} inventory={inventory} vendedoras={vendedoras} showToast={showToast} />}
                 {currentPage === 'history' &&
-                    <HistoryPage storeId={currentStore.id} exchanges={exchanges} showToast={showToast} />}
+                    <HistoryPage storeId={currentStore.id} exchanges={exchanges} vendedoras={vendedoras} inventory={inventory} showToast={showToast} />}
                 {currentPage === 'vendas' &&
                     <VendasPage storeId={currentStore.id} storeName={currentStore.name} inventory={inventory} vendas={vendas} vendedoras={vendedoras} onSaveVendedoras={handleSaveVendedoras} showToast={showToast} />}
                 {currentPage === 'fechamento' &&
@@ -1877,38 +1879,44 @@ function AdminGlobalCalendar({ allExchanges }) {
     );
 }
 
-function NewExchangePage({ storeId, storeName, inventory, showToast }) {
+function NewExchangePage({ storeId, storeName, inventory, vendedoras, showToast }) {
     const [form, setForm] = useState({ saleNumber: '', customerName: '', customerCPF: '', salesPerson: '', date: new Date().toISOString().split('T')[0], observations: '' });
     const [outgoingItems, setOutgoingItems] = useState([]);
     const [incomingItems, setIncomingItems] = useState([]);
     const [photos, setPhotos] = useState([]);
-    const [newOut, setNewOut] = useState({ description: '', value: '' });
-    const [newIn, setNewIn] = useState({ description: '', value: '', condition: 'Novo' });
+    const [newOut, setNewOut] = useState({ description: '', value: '', qty: '1' });
+    const [newIn, setNewIn] = useState({ description: '', value: '', condition: 'Novo', qty: '1' });
     const [saving, setSaving] = useState(false);
     const [printTicket, setPrintTicket] = useState(null);
 
-    const outTotal = outgoingItems.reduce((s, i) => s + parseFloat(i.value), 0);
-    const inTotal = incomingItems.reduce((s, i) => s + parseFloat(i.value), 0);
+    const outTotal = outgoingItems.reduce((s, i) => s + parseFloat(i.value) * (i.qty || 1), 0);
+    const inTotal = incomingItems.reduce((s, i) => s + parseFloat(i.value) * (i.qty || 1), 0);
     const difference = outTotal - inTotal;
 
+    const acharProduto = (value) => {
+        const v = (value || '').trim().toUpperCase();
+        return inventory.find(p => (p.product || '').trim().toUpperCase() === v);
+    };
     const handleDescOut = (value) => {
-        const found = inventory.find(p => p.product === value);
+        const found = acharProduto(value);
         setNewOut(prev => ({ ...prev, description: value, value: found && num(found.price) > 0 ? String(found.price) : prev.value }));
     };
     const handleDescIn = (value) => {
-        const found = inventory.find(p => p.product === value);
+        const found = acharProduto(value);
         setNewIn(prev => ({ ...prev, description: value, value: found && num(found.price) > 0 ? String(found.price) : prev.value }));
     };
 
     const addOut = () => {
         if (!newOut.description || !newOut.value) return;
-        setOutgoingItems(prev => [...prev, { id: Date.now(), description: newOut.description, value: parseFloat(newOut.value) }]);
-        setNewOut({ description: '', value: '' });
+        const qty = parseInt(newOut.qty) || 1;
+        setOutgoingItems(prev => [...prev, { id: Date.now(), description: newOut.description, value: parseFloat(newOut.value), qty }]);
+        setNewOut({ description: '', value: '', qty: '1' });
     };
     const addIn = () => {
         if (!newIn.description || !newIn.value) return;
-        setIncomingItems(prev => [...prev, { id: Date.now(), description: newIn.description, value: parseFloat(newIn.value), condition: newIn.condition }]);
-        setNewIn({ description: '', value: '', condition: 'Novo' });
+        const qty = parseInt(newIn.qty) || 1;
+        setIncomingItems(prev => [...prev, { id: Date.now(), description: newIn.description, value: parseFloat(newIn.value), condition: newIn.condition, qty }]);
+        setNewIn({ description: '', value: '', condition: 'Novo', qty: '1' });
     };
     const handlePhoto = (e) => {
         Array.from(e.target.files).forEach(file => {
@@ -1967,7 +1975,16 @@ function NewExchangePage({ storeId, storeName, inventory, showToast }) {
                     </div>
                     <div className="form-row">
                         <div className="form-group"><label className="form-label">CPF</label><input type="text" className="form-input" value={form.customerCPF} onChange={e => setF('customerCPF', e.target.value)} placeholder="000.000.000-00" /></div>
-                        <div className="form-group"><label className="form-label">Vendedor *</label><input type="text" className="form-input" value={form.salesPerson} onChange={e => setF('salesPerson', e.target.value)} placeholder="Nome do vendedor" required /></div>
+                        <div className="form-group"><label className="form-label">Vendedor *</label>
+                            {(vendedoras || []).filter(v => !v.arquivada).length > 0 ? (
+                                <select className="form-select" value={form.salesPerson} onChange={e => setF('salesPerson', e.target.value)} required>
+                                    <option value="">Selecione...</option>
+                                    {(vendedoras || []).filter(v => !v.arquivada).map(v => <option key={v.id} value={v.nome}>{v.nome}</option>)}
+                                </select>
+                            ) : (
+                                <input type="text" className="form-input" value={form.salesPerson} onChange={e => setF('salesPerson', e.target.value)} placeholder="Nome do vendedor (cadastre em Vendas)" required />
+                            )}
+                        </div>
                         <div className="form-group"><label className="form-label">Data *</label><input type="date" className="form-input" value={form.date} onChange={e => setF('date', e.target.value)} required /></div>
                     </div>
                     <div className="form-group"><label className="form-label">Observacoes</label><textarea className="form-textarea" value={form.observations} onChange={e => setF('observations', e.target.value)} placeholder="Observacoes adicionais..." /></div>
@@ -1976,7 +1993,8 @@ function NewExchangePage({ storeId, storeName, inventory, showToast }) {
                     <h2 className="card-title">📤 Produtos de Saida</h2>
                     <div className="form-row">
                         <div className="form-group"><label className="form-label">Descricao</label><input type="text" className="form-input" value={newOut.description} onChange={e => handleDescOut(e.target.value)} placeholder="Nome do produto" list="inv-list" /></div>
-                        <div className="form-group"><label className="form-label">Valor (R$)</label><input type="number" step="0.01" className="form-input" value={newOut.value} onChange={e => setNewOut({...newOut, value: e.target.value})} placeholder="0.00" /></div>
+                        <div className="form-group"><label className="form-label">Qtd</label><input type="number" min="1" className="form-input" value={newOut.qty} onChange={e => setNewOut({...newOut, qty: e.target.value})} style={{ maxWidth:'90px' }} /></div>
+                        <div className="form-group"><label className="form-label">Valor Unit. (R$)</label><input type="number" step="0.01" className="form-input" value={newOut.value} onChange={e => setNewOut({...newOut, value: e.target.value})} placeholder="0.00" /></div>
                         <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}><button type="button" className="btn btn-primary" onClick={addOut} style={{ width:'100%' }}>➕ Adicionar</button></div>
                     </div>
                     <datalist id="inv-list">{inventory.map(i => <option key={i.id} value={i.product} />)}</datalist>
@@ -1984,7 +2002,7 @@ function NewExchangePage({ storeId, storeName, inventory, showToast }) {
                         <div className="item-list">
                             {outgoingItems.map(item => (
                                 <div key={item.id} className="item-card">
-                                    <div className="item-info"><div className="item-description">{item.description}</div><div className="item-value">{fmt(item.value)}</div></div>
+                                    <div className="item-info"><div className="item-description">{item.qty > 1 ? item.qty + 'x ' : ''}{item.description}</div><div className="item-value">{fmt(item.value * (item.qty || 1))}{item.qty > 1 ? ' (' + fmt(item.value) + ' un.)' : ''}</div></div>
                                     <button type="button" className="btn btn-danger btn-small" onClick={() => setOutgoingItems(prev => prev.filter(i => i.id !== item.id))}>🗑️</button>
                                 </div>
                             ))}
@@ -1996,7 +2014,8 @@ function NewExchangePage({ storeId, storeName, inventory, showToast }) {
                     <h2 className="card-title">📥 Produtos de Entrada</h2>
                     <div className="form-row">
                         <div className="form-group"><label className="form-label">Descricao</label><input type="text" className="form-input" value={newIn.description} onChange={e => handleDescIn(e.target.value)} placeholder="Nome do produto" list="inv-list" /></div>
-                        <div className="form-group"><label className="form-label">Valor (R$)</label><input type="number" step="0.01" className="form-input" value={newIn.value} onChange={e => setNewIn({...newIn, value: e.target.value})} placeholder="0.00" /></div>
+                        <div className="form-group"><label className="form-label">Qtd</label><input type="number" min="1" className="form-input" value={newIn.qty} onChange={e => setNewIn({...newIn, qty: e.target.value})} style={{ maxWidth:'90px' }} /></div>
+                        <div className="form-group"><label className="form-label">Valor Unit. (R$)</label><input type="number" step="0.01" className="form-input" value={newIn.value} onChange={e => setNewIn({...newIn, value: e.target.value})} placeholder="0.00" /></div>
                         <div className="form-group"><label className="form-label">Condicao</label>
                             <select className="form-select" value={newIn.condition} onChange={e => setNewIn({...newIn, condition: e.target.value})}>
                                 <option>Novo</option><option>Usado - Otimo</option><option>Usado - Bom</option><option>Usado - Regular</option><option>Danificado</option>
@@ -2008,7 +2027,7 @@ function NewExchangePage({ storeId, storeName, inventory, showToast }) {
                         <div className="item-list">
                             {incomingItems.map(item => (
                                 <div key={item.id} className="item-card">
-                                    <div className="item-info"><div className="item-description">{item.description}</div><div className="item-value">{fmt(item.value)}</div><div className="item-condition">{item.condition}</div></div>
+                                    <div className="item-info"><div className="item-description">{item.qty > 1 ? item.qty + 'x ' : ''}{item.description}</div><div className="item-value">{fmt(item.value * (item.qty || 1))}{item.qty > 1 ? ' (' + fmt(item.value) + ' un.)' : ''}</div><div className="item-condition">{item.condition}</div></div>
                                     <button type="button" className="btn btn-danger btn-small" onClick={() => setIncomingItems(prev => prev.filter(i => i.id !== item.id))}>🗑️</button>
                                 </div>
                             ))}
@@ -2175,7 +2194,7 @@ function CalendarView({ exchanges, onSelectExchange }) {
     );
 }
 
-function HistoryPage({ storeId, exchanges, showToast }) {
+function HistoryPage({ storeId, exchanges, vendedoras, inventory, showToast }) {
     const [historyView, setHistoryView] = useState('calendar');
     const [filter, setFilter] = useState('all');
     const [search, setSearch] = useState('');
@@ -2252,7 +2271,7 @@ function HistoryPage({ storeId, exchanges, showToast }) {
                 </>
             )}
             {selectedExchange && <ExchangeModal exchange={selectedExchange} storeId={storeId} onClose={() => setSelectedExchange(null)} onStatusChange={() => { showToast('Status atualizado ✅'); setSelectedExchange(null); }} onEdit={(ex) => { setSelectedExchange(null); setEditingExchange(ex); }} />}
-            {editingExchange && <EditExchangeModal exchange={editingExchange} storeId={storeId} onClose={() => setEditingExchange(null)} onSaved={() => { showToast('Troca atualizada ✅'); setEditingExchange(null); }} />}
+            {editingExchange && <EditExchangeModal exchange={editingExchange} storeId={storeId} vendedoras={vendedoras} inventory={inventory} onClose={() => setEditingExchange(null)} onSaved={() => { showToast('Troca atualizada ✅'); setEditingExchange(null); }} />}
         </div>
     );
 }
@@ -3680,7 +3699,7 @@ function PrintReceipt({ exchange, storeId, storeName }) {
     );
 }
 
-function EditExchangeModal({ exchange, storeId, onClose, onSaved }) {
+function EditExchangeModal({ exchange, storeId, vendedoras, inventory, onClose, onSaved }) {
     const [form, setForm] = useState({
         saleNumber: exchange.saleNumber||'', customerName: exchange.customerName||'',
         customerCPF: exchange.customerCPF||'', salesPerson: exchange.salesPerson||'',
@@ -3689,16 +3708,17 @@ function EditExchangeModal({ exchange, storeId, onClose, onSaved }) {
     });
     const [outgoingItems, setOutgoingItems] = useState(exchange.outgoingItems || []);
     const [incomingItems, setIncomingItems] = useState(exchange.incomingItems || []);
-    const [newOut, setNewOut] = useState({ description:'', value:'' });
-    const [newIn, setNewIn] = useState({ description:'', value:'', condition:'Novo' });
+    const [newOut, setNewOut] = useState({ description:'', value:'', qty:'1' });
+    const [newIn, setNewIn] = useState({ description:'', value:'', condition:'Novo', qty:'1' });
     const [saving, setSaving] = useState(false);
 
-    const outTotal = outgoingItems.reduce((s, i) => s + parseFloat(i.value||0), 0);
-    const inTotal  = incomingItems.reduce((s, i) => s + parseFloat(i.value||0), 0);
+    const outTotal = outgoingItems.reduce((s, i) => s + parseFloat(i.value||0) * (i.qty||1), 0);
+    const inTotal  = incomingItems.reduce((s, i) => s + parseFloat(i.value||0) * (i.qty||1), 0);
     const difference = outTotal - inTotal;
 
-    const addOut = () => { if (!newOut.description||!newOut.value) return; setOutgoingItems(p => [...p, { id:Date.now(), description:newOut.description, value:parseFloat(newOut.value) }]); setNewOut({ description:'', value:'' }); };
-    const addIn  = () => { if (!newIn.description||!newIn.value) return; setIncomingItems(p => [...p, { id:Date.now(), description:newIn.description, value:parseFloat(newIn.value), condition:newIn.condition }]); setNewIn({ description:'', value:'', condition:'Novo' }); };
+    const acharPreco = (value) => { const v=(value||'').trim().toUpperCase(); const p=(inventory||[]).find(x => (x.product||'').trim().toUpperCase()===v); return p && num(p.price)>0 ? String(p.price) : null; };
+    const addOut = () => { if (!newOut.description||!newOut.value) return; setOutgoingItems(p => [...p, { id:Date.now(), description:newOut.description, value:parseFloat(newOut.value), qty:parseInt(newOut.qty)||1 }]); setNewOut({ description:'', value:'', qty:'1' }); };
+    const addIn  = () => { if (!newIn.description||!newIn.value) return; setIncomingItems(p => [...p, { id:Date.now(), description:newIn.description, value:parseFloat(newIn.value), condition:newIn.condition, qty:parseInt(newIn.qty)||1 }]); setNewIn({ description:'', value:'', condition:'Novo', qty:'1' }); };
 
     const handleSave = async () => {
         if (!form.saleNumber||!form.customerName||!form.salesPerson) { alert('Preencha os campos obrigatorios'); return; }
@@ -3720,7 +3740,17 @@ function EditExchangeModal({ exchange, storeId, onClose, onSaved }) {
                     <div className="form-row">
                         <div className="form-group"><label className="form-label">No da Venda *</label><input className="form-input" value={form.saleNumber} onChange={e => setF('saleNumber', e.target.value)} /></div>
                         <div className="form-group"><label className="form-label">Cliente *</label><input className="form-input" value={form.customerName} onChange={e => setF('customerName', e.target.value)} /></div>
-                        <div className="form-group"><label className="form-label">Vendedor *</label><input className="form-input" value={form.salesPerson} onChange={e => setF('salesPerson', e.target.value)} /></div>
+                        <div className="form-group"><label className="form-label">Vendedor *</label>
+                            {(vendedoras || []).filter(v => !v.arquivada).length > 0 ? (
+                                <select className="form-select" value={form.salesPerson} onChange={e => setF('salesPerson', e.target.value)}>
+                                    <option value="">Selecione...</option>
+                                    {(vendedoras || []).filter(v => !v.arquivada).map(v => <option key={v.id} value={v.nome}>{v.nome}</option>)}
+                                    {form.salesPerson && !(vendedoras||[]).some(v => v.nome === form.salesPerson) && <option value={form.salesPerson}>{form.salesPerson}</option>}
+                                </select>
+                            ) : (
+                                <input className="form-input" value={form.salesPerson} onChange={e => setF('salesPerson', e.target.value)} />
+                            )}
+                        </div>
                         <div className="form-group"><label className="form-label">Data</label><input type="date" className="form-input" value={form.date} onChange={e => setF('date', e.target.value)} /></div>
                         <div className="form-group"><label className="form-label">Status</label>
                             <select className="form-select" value={form.status} onChange={e => setF('status', e.target.value)}>
