@@ -7469,14 +7469,20 @@ function VendasPage({ storeId, storeName, inventory, vendas, vendedoras, campanh
     const [campanhaId, setCampanhaId] = useState('');
     const [descItem, setDescItem] = useState(''); // produto que recebeu o desconto
     const todayVendas = new Date().toISOString().split('T')[0];
-    const campanhasAtivas = (campanhas || []).filter(k => k.ativa && (!k.inicio || k.inicio <= todayVendas) && (!k.fim || k.fim >= todayVendas));
+    const campanhasAtivas = (campanhas || []).filter(k => k.ativa
+        && (!k.inicio || k.inicio <= todayVendas) && (!k.fim || k.fim >= todayVendas)
+        && (!k.lojas || k.lojas.length === 0 || k.lojas.includes(storeId)));
 
     const aplicarCampanha = (id) => {
         setCampanhaId(id);
         const k = (campanhas || []).find(c => String(c.id) === String(id));
-        if (k) { setDescTipo(k.tipo); setDescInput(String(k.valor)); setDescMotivo('Campanha: ' + k.nome); }
+        if (k) { setDescTipo(k.tipo); setDescInput(String(k.valor)); setDescMotivo('Campanha: ' + k.nome); setDescItem(''); }
         else { setDescTipo('nenhum'); setDescInput(''); setDescMotivo(''); }
     };
+    const campSelecionada = (campanhas || []).find(c => String(c.id) === String(campanhaId));
+    const produtosDisponiveis = (campSelecionada && campSelecionada.produtos && campSelecionada.produtos.length > 0)
+        ? items.filter(it => campSelecionada.produtos.some(p => (p || '').trim().toUpperCase() === (it.product || '').trim().toUpperCase()))
+        : items;
     const [searchVenda, setSearchVenda] = useState('');
     const [printVenda, setPrintVenda] = useState(null);
     const [items, setItems] = useState([]);
@@ -7692,9 +7698,12 @@ function VendasPage({ storeId, storeName, inventory, vendas, vendedoras, campanh
                         <div className="form-row">
                             <div className="form-group"><label className="form-label">Produto que recebeu o desconto</label>
                                 <select className="form-select" value={descItem} onChange={e => setDescItem(e.target.value)}>
-                                    <option value="">Toda a venda</option>
-                                    {items.map((it, idx) => <option key={idx} value={it.product}>{it.product}</option>)}
+                                    <option value="">{campSelecionada && campSelecionada.produtos && campSelecionada.produtos.length > 0 ? 'Selecione o produto da campanha' : 'Toda a venda'}</option>
+                                    {produtosDisponiveis.map((it, idx) => <option key={idx} value={it.product}>{it.product}</option>)}
                                 </select>
+                                {campSelecionada && campSelecionada.produtos && campSelecionada.produtos.length > 0 && produtosDisponiveis.length === 0 && (
+                                    <div style={{ fontSize:'0.78rem', color:'var(--danger)', marginTop:'0.25rem' }}>⚠️ Nenhum produto desta venda participa da campanha "{campSelecionada.nome}".</div>
+                                )}
                             </div>
                             <div className="form-group"><label className="form-label">Motivo / Observação</label><input className="form-input" value={descMotivo} onChange={e => setDescMotivo(e.target.value)} placeholder="Ex: cliente fidelidade / produto avariado" /></div>
                         </div>
@@ -7819,18 +7828,25 @@ function AdminDescontosPage({ storeVendas, campanhas, aprovadorNome, showToast }
     const [refMonth, setRefMonth] = useState(todayStr.slice(0, 7));
     const [lojaFiltro, setLojaFiltro] = useState('all');
     const [deciding, setDeciding] = useState(null);
-    const [novaCamp, setNovaCamp] = useState({ nome:'', tipo:'percentual', valor:'', inicio: todayStr, fim: todayStr });
+    const [novaCamp, setNovaCamp] = useState({ nome:'', tipo:'percentual', valor:'', inicio: todayStr, fim: todayStr, lojas: [], produtos: [] });
     const [savingCamp, setSavingCamp] = useState(false);
+    const [prodBusca, setProdBusca] = useState('');
     const camps = campanhas || [];
+    const catalogoProdutos = (typeof INITIAL_INVENTORY !== 'undefined' ? INITIAL_INVENTORY : []);
+
+    const toggleLojaCamp = (id) => setNovaCamp(p => ({ ...p, lojas: p.lojas.includes(id) ? p.lojas.filter(x => x !== id) : [...p.lojas, id] }));
+    const toggleProdCamp = (nome) => setNovaCamp(p => ({ ...p, produtos: p.produtos.includes(nome) ? p.produtos.filter(x => x !== nome) : [...p.produtos, nome] }));
+    const prodFiltrados = prodBusca.trim() ? catalogoProdutos.filter(p => (p.product || '').toLowerCase().includes(prodBusca.toLowerCase())).slice(0, 30) : [];
 
     const addCampanha = async () => {
         if (!novaCamp.nome) { showToast('Dê um nome à campanha', 'error'); return; }
         if (!num(novaCamp.valor)) { showToast('Informe o valor/percentual da campanha', 'error'); return; }
         setSavingCamp(true);
         try {
-            const nova = { id: Date.now(), nome: novaCamp.nome, tipo: novaCamp.tipo, valor: num(novaCamp.valor), inicio: novaCamp.inicio, fim: novaCamp.fim, ativa: true };
+            const nova = { id: Date.now(), nome: novaCamp.nome, tipo: novaCamp.tipo, valor: num(novaCamp.valor), inicio: novaCamp.inicio, fim: novaCamp.fim, ativa: true, lojas: novaCamp.lojas || [], produtos: novaCamp.produtos || [] };
             await window.TrocaDB.salvarCampanhas([...camps, nova]);
-            setNovaCamp({ nome:'', tipo:'percentual', valor:'', inicio: todayStr, fim: todayStr });
+            setNovaCamp({ nome:'', tipo:'percentual', valor:'', inicio: todayStr, fim: todayStr, lojas: [], produtos: [] });
+            setProdBusca('');
             showToast('Campanha cadastrada! As lojas já podem usar 🎯');
         } catch(e) { console.error(e); showToast('Erro ao salvar campanha', 'error'); }
         finally { setSavingCamp(false); }
@@ -7924,16 +7940,52 @@ function AdminDescontosPage({ storeVendas, campanhas, aprovadorNome, showToast }
                     <div className="form-group"><label className="form-label">Fim</label><input type="date" className="form-input" value={novaCamp.fim} onChange={e => setNovaCamp({...novaCamp, fim: e.target.value})} /></div>
                     <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}><button className="btn btn-success" onClick={addCampanha} disabled={savingCamp} style={{ width:'100%' }}>➕ Criar</button></div>
                 </div>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(300px, 1fr))', gap:'1.5rem', marginBottom:'1.5rem' }}>
+                    <div>
+                        <label className="form-label">🏪 Lojas participantes</label>
+                        <div style={{ fontSize:'0.8rem', color:'var(--text-secondary)', marginBottom:'0.5rem' }}>{novaCamp.lojas.length === 0 ? 'Nenhuma marcada = vale para TODAS as lojas' : novaCamp.lojas.length + ' loja(s) selecionada(s)'}</div>
+                        <div style={{ display:'flex', flexWrap:'wrap', gap:'0.5rem' }}>
+                            {STORES.map(s => (
+                                <button key={s.id} type="button" className={`btn btn-small ${novaCamp.lojas.includes(s.id) ? 'btn-primary' : 'btn-outline'}`} onClick={() => toggleLojaCamp(s.id)}>{novaCamp.lojas.includes(s.id) ? '✓ ' : ''}{s.name}</button>
+                            ))}
+                        </div>
+                    </div>
+                    <div>
+                        <label className="form-label">📦 Produtos participantes</label>
+                        <div style={{ fontSize:'0.8rem', color:'var(--text-secondary)', marginBottom:'0.5rem' }}>{novaCamp.produtos.length === 0 ? 'Nenhum marcado = vale para TODOS os produtos' : novaCamp.produtos.length + ' produto(s) selecionado(s)'}</div>
+                        <input className="form-input" value={prodBusca} onChange={e => setProdBusca(e.target.value)} placeholder="🔍 Buscar produto para adicionar..." style={{ marginBottom:'0.5rem' }} />
+                        {prodFiltrados.length > 0 && (
+                            <div style={{ maxHeight:'160px', overflowY:'auto', background:'var(--bg-dark)', borderRadius:'8px', padding:'0.5rem' }}>
+                                {prodFiltrados.map(p => (
+                                    <div key={p.id} onClick={() => toggleProdCamp(p.product)} style={{ padding:'0.4rem 0.6rem', cursor:'pointer', borderRadius:'6px', fontSize:'0.85rem', background: novaCamp.produtos.includes(p.product) ? 'rgba(26,107,168,0.2)' : 'transparent' }}>
+                                        {novaCamp.produtos.includes(p.product) ? '✓ ' : '+ '}{p.product}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        {novaCamp.produtos.length > 0 && (
+                            <div style={{ display:'flex', flexWrap:'wrap', gap:'0.4rem', marginTop:'0.5rem' }}>
+                                {novaCamp.produtos.map(nome => (
+                                    <span key={nome} className="badge badge-confirmed" style={{ display:'inline-flex', alignItems:'center', gap:'0.4rem', fontSize:'0.75rem' }}>{nome}<button type="button" onClick={() => toggleProdCamp(nome)} style={{ background:'none', border:'none', color:'var(--danger)', cursor:'pointer', fontSize:'0.9rem', padding:0 }}>×</button></span>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
                 {camps.length > 0 ? (
                     <div className="table-container">
                         <table className="table">
-                            <thead><tr><th>Campanha</th><th>Desconto</th><th>Período</th><th>Status</th><th>Ações</th></tr></thead>
+                            <thead><tr><th>Campanha</th><th>Desconto</th><th>Período</th><th>Abrangência</th><th>Status</th><th>Ações</th></tr></thead>
                             <tbody>
                                 {camps.map(k => { const st = campStatus(k); return (
                                     <tr key={k.id}>
                                         <td style={{ fontWeight:'700' }}>{k.nome}</td>
                                         <td style={{ fontWeight:'700', color:'var(--primary)' }}>{k.tipo === 'percentual' ? num(k.valor) + '%' : fmt(num(k.valor))}</td>
                                         <td style={{ fontSize:'0.85rem' }}>{parseDateKey(k.inicio) ? parseDateKey(k.inicio).toLocaleDateString('pt-BR') : k.inicio} a {parseDateKey(k.fim) ? parseDateKey(k.fim).toLocaleDateString('pt-BR') : k.fim}</td>
+                                        <td style={{ fontSize:'0.8rem' }}>
+                                            <div>🏪 {(!k.lojas || k.lojas.length === 0) ? 'Todas as lojas' : k.lojas.map(id => (STORES.find(s => s.id === id) || {}).name).filter(Boolean).join(', ')}</div>
+                                            <div style={{ color:'var(--text-secondary)' }}>📦 {(!k.produtos || k.produtos.length === 0) ? 'Todos os produtos' : k.produtos.length + ' produto(s)'}</div>
+                                        </td>
                                         <td><span className="badge" style={{ background: st.cor, color: st.txt === 'Ativa' ? 'white' : 'var(--bg-dark)' }}>{st.txt}</span></td>
                                         <td>
                                             <div style={{ display:'flex', gap:'0.4rem' }}>
