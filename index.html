@@ -364,6 +364,19 @@
         return results;
     }
 
+    // ===== CAMPANHAS DE DESCONTO (cadastradas pelo Admin, usadas pelas lojas) =====
+    async function salvarCampanhas(campanhas) {
+        const ref = db.collection("config").doc("campanhas_desconto");
+        await ref.set({ campanhas: campanhas, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    }
+
+    function ouvirCampanhas(callback) {
+        const ref = db.collection("config").doc("campanhas_desconto");
+        return ref.onSnapshot(function(snap) {
+            callback(snap.exists ? (snap.data().campanhas || []) : []);
+        }, function() { callback([]); });
+    }
+
     // ===== VENDAS IMPORTADAS (base da curva ABC por loja) =====
     // Guarda o AGREGADO por produto (nao as milhares de linhas) para caber no Firestore
     async function salvarVendasCurva(storeId, dados) {
@@ -877,6 +890,7 @@
         salvarInventarioDiario, deletarInventarioDiario, ouvirInventariosDiarios, ouvirTodosInventariosDiarios, ouvirTodosEstoques, testarConexaoInventario,
         salvarProgramacaoContagem, ouvirProgramacaoContagem,
         salvarVendasCurva, ouvirVendasCurva, ouvirTodasVendasCurva,
+        salvarCampanhas, ouvirCampanhas,
         salvarFechamento, getFechamento, ouvirTodosFechamentos, ouvirFechamentosLoja,
         salvarMetas, ouvirMetas, salvarMetasVendedoras, ouvirMetasVendedoras,
         salvarVenda, deletarVenda, atualizarVenda, ouvirVendas, ouvirTodasVendas,
@@ -1080,6 +1094,7 @@ function App() {
     const [metasVend, setMetasVend] = useState({});
     const [vendas, setVendas] = useState([]);
     const [vendedoras, setVendedoras] = useState([]);
+    const [campanhasLoja, setCampanhasLoja] = useState([]);
     const [fechamentosLoja, setFechamentosLoja] = useState([]);
     const [testers, setTesters] = useState([]);
     const [insumosLoja, setInsumosLoja] = useState(INITIAL_INSUMOS);
@@ -1116,6 +1131,7 @@ function App() {
             const unsubMetasVend = window.TrocaDB.ouvirMetasVendedoras((m) => setMetasVend(m || {}));
             const unsubVendas = window.TrocaDB.ouvirVendas(currentStore.id, (v) => setVendas(v));
             const unsubVendedoras = window.TrocaDB.ouvirVendedoras(currentStore.id, (v) => setVendedoras(v));
+            const unsubCampanhas = window.TrocaDB.ouvirCampanhas((k) => setCampanhasLoja(k || []));
             const unsubFechLoja = window.TrocaDB.ouvirFechamentosLoja(currentStore.id, currentStore.name, (f) => setFechamentosLoja(f));
             const unsubTesters = window.TrocaDB.ouvirTesters(currentStore.id, (t) => setTesters(t));
             const unsubInsumos = window.TrocaDB.ouvirInsumos(currentStore.id, INITIAL_INSUMOS, (i) => setInsumosLoja(i));
@@ -1124,7 +1140,7 @@ function App() {
             const unsubVales = window.TrocaDB.ouvirValePresente(currentStore.id, (v) => setVales(v));
             const unsubCashback = window.TrocaDB.ouvirCashback(currentStore.id, (v) => setCashbacks(v));
             const unsubInvDiario = window.TrocaDB.ouvirInventariosDiarios(currentStore.id, (d) => setInventariosDiarios(d));
-            unsubscribeRef.current = [unsubExchanges, unsubInventory, unsubMetas, unsubMetasVend, unsubVendas, unsubVendedoras, unsubFechLoja, unsubTesters, unsubInsumos, unsubMovs, unsubTransf, unsubVales, unsubCashback, unsubInvDiario];
+            unsubscribeRef.current = [unsubExchanges, unsubInventory, unsubMetas, unsubMetasVend, unsubVendas, unsubVendedoras, unsubCampanhas, unsubFechLoja, unsubTesters, unsubInsumos, unsubMovs, unsubTransf, unsubVales, unsubCashback, unsubInvDiario];
         } catch(e) {
             console.error(e);
             setSyncStatus('offline');
@@ -1217,7 +1233,7 @@ function App() {
                 {currentPage === 'history' &&
                     <HistoryPage storeId={currentStore.id} exchanges={exchanges} vendedoras={vendedoras} inventory={inventory} showToast={showToast} />}
                 {currentPage === 'vendas' &&
-                    <VendasPage storeId={currentStore.id} storeName={currentStore.name} inventory={inventory} vendas={vendas} vendedoras={vendedoras} onSaveVendedoras={handleSaveVendedoras} showToast={showToast} />}
+                    <VendasPage storeId={currentStore.id} storeName={currentStore.name} inventory={inventory} vendas={vendas} vendedoras={vendedoras} campanhas={campanhasLoja} onSaveVendedoras={handleSaveVendedoras} showToast={showToast} />}
                 {currentPage === 'fechamento' &&
                     <FechamentoPage storeId={currentStore.id} storeName={currentStore.name} exchanges={exchanges} metas={metas} vendedoras={vendedoras} fechamentos={fechamentosLoja} showToast={showToast} />}
                 {currentPage === 'inventory' &&
@@ -1247,6 +1263,7 @@ function AdminView({ onLogout, showToast }) {
     const [storeExchanges, setStoreExchanges] = useState({});
     const [storeFechamentos, setStoreFechamentos] = useState({});
     const [storeVendas, setStoreVendas] = useState({});
+    const [campanhas, setCampanhas] = useState([]);
     const [storeFretes, setStoreFretes] = useState({});
     const [storeTesters, setStoreTesters] = useState({});
     const [storeInsumos, setStoreInsumos] = useState({});
@@ -1288,6 +1305,7 @@ function AdminView({ onLogout, showToast }) {
             unsubs.push(window.TrocaDB.ouvirTodasVendas(STORES, (storeId, vendas) => {
                 setStoreVendas(prev => ({ ...prev, [storeId]: vendas }));
             }));
+            unsubs.push(window.TrocaDB.ouvirCampanhas((camps) => setCampanhas(camps || [])));
             unsubs.push(window.TrocaDB.ouvirTodosFretes(STORES, (storeId, fretes) => {
                 setStoreFretes(prev => ({ ...prev, [storeId]: fretes }));
             }));
@@ -1471,7 +1489,7 @@ function AdminView({ onLogout, showToast }) {
                     <AdminTestersPage storeTesters={storeTesters} aprovadorNome="Administrador" showToast={showToast} />
                 )}
                 {adminPage === 'descontos' && (
-                    <AdminDescontosPage storeVendas={storeVendas} aprovadorNome="Administrador" showToast={showToast} />
+                    <AdminDescontosPage storeVendas={storeVendas} campanhas={campanhas} aprovadorNome="Administrador" showToast={showToast} />
                 )}
                 {adminPage === 'transferencias' && (
                     <AdminTransferenciasPage storeTransfs={storeTransfs} aprovadorNome="Administrador" showToast={showToast} />
@@ -1604,6 +1622,7 @@ function FinanceiroView({ onLogout, showToast }) {
     const [storeFechamentos, setStoreFechamentos] = useState({});
     const [storeExchanges, setStoreExchanges] = useState({});
     const [storeVendas, setStoreVendas] = useState({});
+    const [campanhas, setCampanhas] = useState([]);
     const [metas, setMetas] = useState({});
     const [metasVend, setMetasVend] = useState({});
     const [storeTesters, setStoreTesters] = useState({});
@@ -1629,6 +1648,7 @@ function FinanceiroView({ onLogout, showToast }) {
             unsubs.push(window.TrocaDB.ouvirTodasVendas(STORES, (storeId, vs) => {
                 setStoreVendas(prev => ({ ...prev, [storeId]: vs }));
             }));
+            unsubs.push(window.TrocaDB.ouvirCampanhas((camps) => setCampanhas(camps || [])));
             unsubs.push(window.TrocaDB.ouvirMetas((m) => setMetas(m || {})));
             unsubs.push(window.TrocaDB.ouvirMetasVendedoras((m) => setMetasVend(m || {})));
             unsubs.push(window.TrocaDB.ouvirTodosTesters(STORES, (storeId, testers) => {
@@ -1721,7 +1741,7 @@ function FinanceiroView({ onLogout, showToast }) {
             <main className="main-content">
                 {finPage === 'fechamentos' && <AdminFechamentosPage storeFechamentos={storeFechamentos} storeExchanges={storeExchanges} metas={{}} showToast={showToast} />}
                 {finPage === 'testers' && <AdminTestersPage storeTesters={storeTesters} aprovadorNome="Bruno (Financeiro)" showToast={showToast} />}
-                {finPage === 'descontos' && <AdminDescontosPage storeVendas={storeVendas} aprovadorNome="Bruno (Financeiro)" showToast={showToast} />}
+                {finPage === 'descontos' && <AdminDescontosPage storeVendas={storeVendas} campanhas={campanhas} aprovadorNome="Bruno (Financeiro)" showToast={showToast} />}
                 {finPage === 'transferencias' && <AdminTransferenciasPage storeTransfs={storeTransfs} aprovadorNome="Bruno (Financeiro)" showToast={showToast} />}
                 {finPage === 'acompanhamento' && <AcompanhamentoVendedorasPage storeFechamentos={storeFechamentos} metas={metas} metasVend={metasVend} showToast={showToast} />}
                 {finPage === 'valepresente' && <AdminValePresentePage storeVales={storeVales} showToast={showToast} />}
@@ -7439,13 +7459,24 @@ function AdminMetasPage({ metas, metasVend, showToast }) {
 // ===================== REGISTRO DE VENDAS =====================
 const FORMAS_PGTO = ['Crédito', 'Débito', 'PIX', 'Dinheiro', 'Link de Pagamento', 'Boleto'];
 
-function VendasPage({ storeId, storeName, inventory, vendas, vendedoras, onSaveVendedoras, showToast }) {
+function VendasPage({ storeId, storeName, inventory, vendas, vendedoras, campanhas, onSaveVendedoras, showToast }) {
     const todayStr = new Date().toISOString().split('T')[0];
     const [novaVendedora, setNovaVendedora] = useState('');
     const [form, setForm] = useState({ date: todayStr, vendedora: '', ticket: '', formaPagamento: 'Crédito', customerName: '', customerCPF: '' });
     const [descTipo, setDescTipo] = useState('nenhum'); // nenhum | valor | percentual
     const [descInput, setDescInput] = useState('');
     const [descMotivo, setDescMotivo] = useState('');
+    const [campanhaId, setCampanhaId] = useState('');
+    const [descItem, setDescItem] = useState(''); // produto que recebeu o desconto
+    const todayVendas = new Date().toISOString().split('T')[0];
+    const campanhasAtivas = (campanhas || []).filter(k => k.ativa && (!k.inicio || k.inicio <= todayVendas) && (!k.fim || k.fim >= todayVendas));
+
+    const aplicarCampanha = (id) => {
+        setCampanhaId(id);
+        const k = (campanhas || []).find(c => String(c.id) === String(id));
+        if (k) { setDescTipo(k.tipo); setDescInput(String(k.valor)); setDescMotivo('Campanha: ' + k.nome); }
+        else { setDescTipo('nenhum'); setDescInput(''); setDescMotivo(''); }
+    };
     const [searchVenda, setSearchVenda] = useState('');
     const [printVenda, setPrintVenda] = useState(null);
     const [items, setItems] = useState([]);
@@ -7504,11 +7535,12 @@ function VendasPage({ storeId, storeName, inventory, vendas, vendedoras, onSaveV
             await window.TrocaDB.salvarVenda(storeId, {
                 ...form, storeName, items, itensCount: items.reduce((s, i) => s + i.qty, 0),
                 subtotal, descontoTipo: descTipo, descontoInput: num(descInput), descontoValor, descontoMotivo: descMotivo,
+                campanhaId: campanhaId || null, campanhaNome: (campanhas || []).find(c => String(c.id) === String(campanhaId))?.nome || null, descontoItem: descItem || null,
                 total, status: temDesconto ? 'pendente' : 'aprovada', aprovadoPor: temDesconto ? '' : '—'
             });
             setItems([]);
             setForm({ date: form.date, vendedora: form.vendedora, ticket: '', formaPagamento: form.formaPagamento, customerName: '', customerCPF: '' });
-            setDescTipo('nenhum'); setDescInput(''); setDescMotivo('');
+            setDescTipo('nenhum'); setDescInput(''); setDescMotivo(''); setCampanhaId(''); setDescItem('');
             showToast(temDesconto ? 'Venda registrada! Desconto aguardando aprovação da Administração 🔒' : 'Venda registrada! 🎉');
         } catch(e) { console.error(e); showToast('Erro ao salvar venda', 'error'); }
         finally { setSaving(false); }
@@ -7636,8 +7668,14 @@ function VendasPage({ storeId, storeName, inventory, vendas, vendedoras, onSaveV
                 <div style={{ borderTop:'1px solid var(--border)', paddingTop:'1.5rem', marginBottom:'1.5rem' }}>
                     <div style={{ fontWeight:'700', marginBottom:'1rem' }}>🏷️ Desconto (opcional)</div>
                     <div className="form-row">
+                        <div className="form-group"><label className="form-label">Campanha</label>
+                            <select className="form-select" value={campanhaId} onChange={e => aplicarCampanha(e.target.value)}>
+                                <option value="">Sem campanha / manual</option>
+                                {campanhasAtivas.map(k => <option key={k.id} value={k.id}>{k.nome} ({k.tipo === 'percentual' ? k.valor + '%' : fmt(num(k.valor))})</option>)}
+                            </select>
+                        </div>
                         <div className="form-group"><label className="form-label">Tipo de Desconto</label>
-                            <select className="form-select" value={descTipo} onChange={e => { setDescTipo(e.target.value); setDescInput(''); }}>
+                            <select className="form-select" value={descTipo} onChange={e => { setDescTipo(e.target.value); setDescInput(''); setCampanhaId(''); }} disabled={!!campanhaId}>
                                 <option value="nenhum">Sem desconto</option>
                                 <option value="valor">Valor (R$)</option>
                                 <option value="percentual">Percentual (%)</option>
@@ -7645,14 +7683,22 @@ function VendasPage({ storeId, storeName, inventory, vendas, vendedoras, onSaveV
                         </div>
                         {descTipo !== 'nenhum' && (
                             <div className="form-group">
-                                <label className="form-label">{descTipo === 'percentual' ? 'Percentual de Desconto (%)' : 'Valor do Desconto (R$)'}</label>
-                                <input type="text" inputMode="decimal" className="form-input" value={descInput} onChange={e => setDescInput(e.target.value)} placeholder={descTipo === 'percentual' ? 'Ex: 10' : '0,00'} />
+                                <label className="form-label">{descTipo === 'percentual' ? 'Percentual (%)' : 'Valor (R$)'}</label>
+                                <input type="text" inputMode="decimal" className="form-input" value={descInput} onChange={e => setDescInput(e.target.value)} placeholder={descTipo === 'percentual' ? 'Ex: 10' : '0,00'} disabled={!!campanhaId} />
                             </div>
                         )}
-                        {descTipo !== 'nenhum' && (
-                            <div className="form-group"><label className="form-label">Motivo do Desconto</label><input className="form-input" value={descMotivo} onChange={e => setDescMotivo(e.target.value)} placeholder="Ex: cliente fidelidade / produto avariado" /></div>
-                        )}
                     </div>
+                    {descTipo !== 'nenhum' && (
+                        <div className="form-row">
+                            <div className="form-group"><label className="form-label">Produto que recebeu o desconto</label>
+                                <select className="form-select" value={descItem} onChange={e => setDescItem(e.target.value)}>
+                                    <option value="">Toda a venda</option>
+                                    {items.map((it, idx) => <option key={idx} value={it.product}>{it.product}</option>)}
+                                </select>
+                            </div>
+                            <div className="form-group"><label className="form-label">Motivo / Observação</label><input className="form-input" value={descMotivo} onChange={e => setDescMotivo(e.target.value)} placeholder="Ex: cliente fidelidade / produto avariado" /></div>
+                        </div>
+                    )}
                     {descTipo !== 'nenhum' && descontoValor > 0 && (
                         <div style={{ padding:'0.75rem 1rem', background:'var(--bg-dark)', borderRadius:'10px', fontSize:'0.9rem', color:'var(--warning)', fontWeight:'600' }}>
                             🔒 Este desconto ficará <strong>aguardando aprovação da Administração</strong>. A venda é registrada normalmente com o valor já descontado.
@@ -7768,17 +7814,58 @@ function PrintVendaCupom({ venda, storeName }) {
     );
 }
 
-function AdminDescontosPage({ storeVendas, aprovadorNome, showToast }) {
+function AdminDescontosPage({ storeVendas, campanhas, aprovadorNome, showToast }) {
     const todayStr = new Date().toISOString().split('T')[0];
     const [refMonth, setRefMonth] = useState(todayStr.slice(0, 7));
     const [lojaFiltro, setLojaFiltro] = useState('all');
     const [deciding, setDeciding] = useState(null);
+    const [novaCamp, setNovaCamp] = useState({ nome:'', tipo:'percentual', valor:'', inicio: todayStr, fim: todayStr });
+    const [savingCamp, setSavingCamp] = useState(false);
+    const camps = campanhas || [];
+
+    const addCampanha = async () => {
+        if (!novaCamp.nome) { showToast('Dê um nome à campanha', 'error'); return; }
+        if (!num(novaCamp.valor)) { showToast('Informe o valor/percentual da campanha', 'error'); return; }
+        setSavingCamp(true);
+        try {
+            const nova = { id: Date.now(), nome: novaCamp.nome, tipo: novaCamp.tipo, valor: num(novaCamp.valor), inicio: novaCamp.inicio, fim: novaCamp.fim, ativa: true };
+            await window.TrocaDB.salvarCampanhas([...camps, nova]);
+            setNovaCamp({ nome:'', tipo:'percentual', valor:'', inicio: todayStr, fim: todayStr });
+            showToast('Campanha cadastrada! As lojas já podem usar 🎯');
+        } catch(e) { console.error(e); showToast('Erro ao salvar campanha', 'error'); }
+        finally { setSavingCamp(false); }
+    };
+    const toggleCampanha = async (id) => {
+        await window.TrocaDB.salvarCampanhas(camps.map(k => k.id === id ? { ...k, ativa: !k.ativa } : k));
+    };
+    const removerCampanha = async (id) => {
+        if (!confirm('Excluir esta campanha?')) return;
+        await window.TrocaDB.salvarCampanhas(camps.filter(k => k.id !== id));
+    };
+    const campStatus = (k) => {
+        if (!k.ativa) return { txt: 'Inativa', cor: 'var(--text-muted)' };
+        if (k.fim && k.fim < todayStr) return { txt: 'Expirada', cor: 'var(--danger)' };
+        if (k.inicio && k.inicio > todayStr) return { txt: 'Agendada', cor: 'var(--warning)' };
+        return { txt: 'Ativa', cor: 'var(--success)' };
+    };
 
     const all = useMemo(() => Object.values(storeVendas).flat().filter(v => num(v.descontoValor) > 0), [storeVendas]);
     const pendentes = useMemo(() => all.filter(v => v.status === 'pendente' && (lojaFiltro === 'all' || v.storeId === lojaFiltro))
         .sort((a, b) => (a.date > b.date ? 1 : -1)), [all, lojaFiltro]);
     const doMes = useMemo(() => all.filter(v => v.date && v.date.slice(0, 7) === refMonth && (lojaFiltro === 'all' || v.storeId === lojaFiltro))
         .sort((a, b) => (b.date > a.date ? 1 : -1)), [all, refMonth, lojaFiltro]);
+
+    const descontoPorCampanha = useMemo(() => {
+        const map = {};
+        doMes.forEach(v => {
+            const nome = v.campanhaNome || 'Sem campanha';
+            if (!map[nome]) map[nome] = { nome, total: 0, qtd: 0 };
+            map[nome].total += num(v.descontoValor);
+            map[nome].qtd += 1;
+        });
+        return Object.values(map).sort((a, b) => b.total - a.total);
+    }, [doMes]);
+    const maxCamp = Math.max(...descontoPorCampanha.map(c => c.total), 1);
 
     const aprovar = async (v) => {
         setDeciding(v.storeId + '-' + v.id);
@@ -7822,6 +7909,47 @@ function AdminDescontosPage({ storeVendas, aprovadorNome, showToast }) {
                 <h1 className="page-title">🏷️ Aprovação de Descontos</h1>
                 <p className="page-subtitle">Todo desconto lançado nas lojas passa por aqui — nunca é autorizado pela própria vendedora</p>
             </div>
+            <div className="card" style={{ border:'1px solid var(--secondary-light)' }}>
+                <h2 className="card-title">🎯 Campanhas de Desconto</h2>
+                <p style={{ color:'var(--text-secondary)', fontSize:'0.9rem', marginTop:'-0.75rem', marginBottom:'1.5rem' }}>Cadastre as campanhas — as lojas escolhem na hora de lançar o desconto.</p>
+                <div className="form-row">
+                    <div className="form-group"><label className="form-label">Nome da Campanha *</label><input className="form-input" value={novaCamp.nome} onChange={e => setNovaCamp({...novaCamp, nome: e.target.value})} placeholder="Ex: Black Friday, Aniversário..." /></div>
+                    <div className="form-group"><label className="form-label">Tipo</label>
+                        <select className="form-select" value={novaCamp.tipo} onChange={e => setNovaCamp({...novaCamp, tipo: e.target.value})}>
+                            <option value="percentual">Percentual (%)</option><option value="valor">Valor Fixo (R$)</option>
+                        </select>
+                    </div>
+                    <div className="form-group"><label className="form-label">{novaCamp.tipo === 'percentual' ? 'Percentual (%)' : 'Valor (R$)'}</label><input type="text" inputMode="decimal" className="form-input" value={novaCamp.valor} onChange={e => setNovaCamp({...novaCamp, valor: e.target.value})} placeholder={novaCamp.tipo === 'percentual' ? 'Ex: 10' : '0,00'} /></div>
+                    <div className="form-group"><label className="form-label">Início</label><input type="date" className="form-input" value={novaCamp.inicio} onChange={e => setNovaCamp({...novaCamp, inicio: e.target.value})} /></div>
+                    <div className="form-group"><label className="form-label">Fim</label><input type="date" className="form-input" value={novaCamp.fim} onChange={e => setNovaCamp({...novaCamp, fim: e.target.value})} /></div>
+                    <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}><button className="btn btn-success" onClick={addCampanha} disabled={savingCamp} style={{ width:'100%' }}>➕ Criar</button></div>
+                </div>
+                {camps.length > 0 ? (
+                    <div className="table-container">
+                        <table className="table">
+                            <thead><tr><th>Campanha</th><th>Desconto</th><th>Período</th><th>Status</th><th>Ações</th></tr></thead>
+                            <tbody>
+                                {camps.map(k => { const st = campStatus(k); return (
+                                    <tr key={k.id}>
+                                        <td style={{ fontWeight:'700' }}>{k.nome}</td>
+                                        <td style={{ fontWeight:'700', color:'var(--primary)' }}>{k.tipo === 'percentual' ? num(k.valor) + '%' : fmt(num(k.valor))}</td>
+                                        <td style={{ fontSize:'0.85rem' }}>{parseDateKey(k.inicio) ? parseDateKey(k.inicio).toLocaleDateString('pt-BR') : k.inicio} a {parseDateKey(k.fim) ? parseDateKey(k.fim).toLocaleDateString('pt-BR') : k.fim}</td>
+                                        <td><span className="badge" style={{ background: st.cor, color: st.txt === 'Ativa' ? 'white' : 'var(--bg-dark)' }}>{st.txt}</span></td>
+                                        <td>
+                                            <div style={{ display:'flex', gap:'0.4rem' }}>
+                                                <button className="btn btn-outline btn-small" onClick={() => toggleCampanha(k.id)}>{k.ativa ? '⏸️' : '▶️'}</button>
+                                                <button className="btn btn-danger btn-small" onClick={() => removerCampanha(k.id)}>🗑️</button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                );})}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <div style={{ color:'var(--text-secondary)' }}>Nenhuma campanha cadastrada ainda.</div>
+                )}
+            </div>
             <div className="card">
                 <div className="form-row">
                     <div className="form-group"><label className="form-label">Mês (histórico)</label><input type="month" className="form-input" value={refMonth} onChange={e => setRefMonth(e.target.value)} /></div>
@@ -7859,11 +7987,27 @@ function AdminDescontosPage({ storeVendas, aprovadorNome, showToast }) {
                 )}
             </div>
             <div className="card">
+                <h2 className="card-title">🎯 Desconto por Campanha — {refMonth.split('-')[1]}/{refMonth.split('-')[0]}</h2>
+                {descontoPorCampanha.length > 0 ? descontoPorCampanha.map(cp => (
+                    <div key={cp.nome} style={{ marginBottom:'1rem' }}>
+                        <div style={{ display:'flex', justifyContent:'space-between', marginBottom:'0.35rem', fontSize:'0.95rem' }}>
+                            <span style={{ fontWeight:'600' }}>{cp.nome}</span>
+                            <span style={{ fontWeight:'700' }}>{fmt(cp.total)} <span style={{ color:'var(--text-secondary)', fontWeight:'500' }}>({cp.qtd} venda{cp.qtd === 1 ? '' : 's'})</span></span>
+                        </div>
+                        <div style={{ background:'var(--bg-dark)', borderRadius:'8px', height:'20px', overflow:'hidden' }}>
+                            <div style={{ width: ((cp.total / maxCamp) * 100) + '%', height:'100%', background:'linear-gradient(90deg, var(--primary), var(--secondary-light))', borderRadius:'8px' }}></div>
+                        </div>
+                    </div>
+                )) : (
+                    <div style={{ color:'var(--text-secondary)', marginBottom:'1rem' }}>Nenhum desconto por campanha neste mês.</div>
+                )}
+            </div>
+            <div className="card">
                 <h2 className="card-title">📜 Histórico de {refMonth.split('-')[1]}/{refMonth.split('-')[0]}</h2>
                 {doMes.length > 0 ? (
                     <div className="table-container">
                         <table className="table">
-                            <thead><tr><th>Data</th><th>Loja</th><th>Ticket</th><th>Vendedora</th><th>Subtotal</th><th>Desconto</th><th>Total</th><th>Status</th><th>Decidido por</th></tr></thead>
+                            <thead><tr><th>Data</th><th>Loja</th><th>Ticket</th><th>Vendedora</th><th>Campanha / Item</th><th>Subtotal</th><th>Desconto</th><th>Total</th><th>Status</th><th>Decidido por</th></tr></thead>
                             <tbody>
                                 {doMes.map(v => (
                                     <tr key={v.storeId + '-' + v.id}>
@@ -7871,6 +8015,7 @@ function AdminDescontosPage({ storeVendas, aprovadorNome, showToast }) {
                                         <td style={{ fontSize:'0.85rem' }}>{v.storeName}</td>
                                         <td style={{ fontWeight:'700' }}>{v.ticket || '-'}</td>
                                         <td>{v.vendedora}</td>
+                                        <td style={{ fontSize:'0.85rem' }}>{v.campanhaNome ? <span className="badge badge-confirmed" style={{ fontSize:'0.72rem' }}>{v.campanhaNome}</span> : <span style={{ color:'var(--text-muted)' }}>manual</span>}{v.descontoItem ? <div style={{ fontSize:'0.72rem', color:'var(--text-secondary)' }}>📦 {v.descontoItem}</div> : null}</td>
                                         <td>{fmt(num(v.subtotal))}</td>
                                         <td style={{ color:'var(--warning)', fontWeight:'700' }}>−{fmt(num(v.descontoValor))}</td>
                                         <td style={{ fontWeight:'700', color:'var(--success)' }}>{fmt(num(v.total))}</td>
