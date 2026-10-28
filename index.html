@@ -7473,12 +7473,13 @@ function AdminMetasPage({ metas, metasVend, showToast }) {
 }
 
 // ===================== REGISTRO DE VENDAS =====================
-const FORMAS_PGTO = ['Crédito', 'Débito', 'PIX', 'Dinheiro', 'Link de Pagamento', 'Boleto'];
+const FORMAS_PGTO = ['Dinheiro', 'PIX', 'Débito', 'Crédito à Vista', 'Crédito Parcelado', 'Link de Pagamento', 'Boleto'];
 
 function VendasPage({ storeId, storeName, inventory, vendas, vendedoras, campanhas, onSaveVendedoras, showToast }) {
     const todayStr = new Date().toISOString().split('T')[0];
     const [novaVendedora, setNovaVendedora] = useState('');
-    const [form, setForm] = useState({ date: todayStr, vendedora: '', ticket: '', formaPagamento: 'Crédito', customerName: '', customerCPF: '' });
+    const [form, setForm] = useState({ date: todayStr, vendedora: '', ticket: '', customerName: '', customerCPF: '' });
+    const [pagamentos, setPagamentos] = useState([{ forma: 'Dinheiro', valor: '', parcelas: '1' }]);
     const [descTipo, setDescTipo] = useState('nenhum'); // nenhum | valor | percentual
     const [descInput, setDescInput] = useState('');
     const [descMotivo, setDescMotivo] = useState('');
@@ -7510,6 +7511,16 @@ function VendasPage({ storeId, storeName, inventory, vendas, vendedoras, campanh
     const subtotal = items.reduce((s, i) => s + i.subtotal, 0);
     const descontoValor = descTipo === 'percentual' ? subtotal * (num(descInput) / 100) : descTipo === 'valor' ? num(descInput) : 0;
     const total = Math.max(subtotal - descontoValor, 0);
+    const nextTicket = useMemo(() => {
+        const nums = (vendas || []).map(v => parseInt(String(v.ticket || '').replace(/\D/g, ''), 10)).filter(n => !isNaN(n));
+        return String((nums.length ? Math.max(...nums) : 0) + 1);
+    }, [vendas]);
+    const ticketEfetivo = (form.ticket && form.ticket.trim()) ? form.ticket.trim() : nextTicket;
+    const totalPago = pagamentos.reduce((s, p) => s + num(p.valor), 0);
+    const restante = Math.round((total - totalPago) * 100) / 100;
+    const addPag = () => { if (pagamentos.length >= 2) return; setPagamentos(p => [...p, { forma: 'Crédito à Vista', valor: restante > 0 ? String(restante).replace('.', ',') : '', parcelas: '1' }]); };
+    const rmPag = (i) => setPagamentos(p => p.length > 1 ? p.filter((_, x) => x !== i) : p);
+    const setPag = (i, k, val) => setPagamentos(p => p.map((x, idx) => idx === i ? { ...x, [k]: val } : x));
 
     // Cadastro de vendedoras
     const addVendedora = async () => {
@@ -7551,17 +7562,25 @@ function VendasPage({ storeId, storeName, inventory, vendas, vendedoras, campanh
     const handleSave = async () => {
         if (!form.vendedora) { showToast('Selecione a vendedora', 'error'); return; }
         if (items.length === 0) { showToast('Adicione pelo menos um produto', 'error'); return; }
+        // Finalização estilo Linx: 1 ou 2 formas de pagamento
+        let pags = pagamentos.filter(p => p.forma).map(p => ({ forma: p.forma, valor: num(p.valor), parcelas: p.forma === 'Crédito Parcelado' ? Math.max(1, parseInt(p.parcelas) || 1) : 1 }));
+        if (pags.length === 1 && !num(pagamentos[0].valor)) pags[0].valor = total;
+        const somaPag = Math.round(pags.reduce((s, p) => s + p.valor, 0) * 100) / 100;
+        if (Math.abs(somaPag - total) > 0.01) { showToast('A soma dos pagamentos (' + fmt(somaPag) + ') não confere com o total (' + fmt(total) + ')', 'error'); return; }
+        const formaResumo = pags.map(p => p.forma + (p.parcelas > 1 ? ' ' + p.parcelas + 'x' : '')).join(' + ');
         setSaving(true);
         try {
             const temDesconto = descontoValor > 0;
             await window.TrocaDB.salvarVenda(storeId, {
-                ...form, storeName, items, itensCount: items.reduce((s, i) => s + i.qty, 0),
+                ...form, ticket: ticketEfetivo, storeName, items, itensCount: items.reduce((s, i) => s + i.qty, 0),
+                formaPagamento: formaResumo, pagamentos: pags,
                 subtotal, descontoTipo: descTipo, descontoInput: num(descInput), descontoValor, descontoMotivo: descMotivo,
                 campanhaId: campanhaId || null, campanhaNome: (campanhas || []).find(c => String(c.id) === String(campanhaId))?.nome || null, descontoItem: descItem || null,
                 total, status: temDesconto ? 'pendente' : 'aprovada', aprovadoPor: temDesconto ? '' : '—'
             });
             setItems([]);
-            setForm({ date: form.date, vendedora: form.vendedora, ticket: '', formaPagamento: form.formaPagamento, customerName: '', customerCPF: '' });
+            setForm({ date: form.date, vendedora: form.vendedora, ticket: '', customerName: '', customerCPF: '' });
+            setPagamentos([{ forma: 'Dinheiro', valor: '', parcelas: '1' }]);
             setDescTipo('nenhum'); setDescInput(''); setDescMotivo(''); setCampanhaId(''); setDescItem('');
             showToast(temDesconto ? 'Venda registrada! Desconto aguardando aprovação da Administração 🔒' : 'Venda registrada! 🎉');
         } catch(e) { console.error(e); showToast('Erro ao salvar venda', 'error'); }
@@ -7672,12 +7691,7 @@ function VendasPage({ storeId, storeName, inventory, vendas, vendedoras, campanh
                             {(vendedoras || []).filter(v => !v.arquivada).map(v => <option key={v.id} value={v.nome}>{v.nome}</option>)}
                         </select>
                     </div>
-                    <div className="form-group"><label className="form-label">Nº Ticket/Venda</label><input className="form-input" value={form.ticket} onChange={e => setF('ticket', e.target.value)} placeholder="Ex: 17081" /></div>
-                    <div className="form-group"><label className="form-label">Forma de Pagamento</label>
-                        <select className="form-select" value={form.formaPagamento} onChange={e => setF('formaPagamento', e.target.value)}>
-                            {FORMAS_PGTO.map(f => <option key={f}>{f}</option>)}
-                        </select>
-                    </div>
+                    <div className="form-group"><label className="form-label">Nº Ticket/Venda (automático)</label><input className="form-input" value={form.ticket || nextTicket} onChange={e => setF('ticket', e.target.value)} style={{ fontWeight:'700' }} title="Gerado automaticamente — edite apenas se precisar" /></div>
                 </div>
                 <div className="form-row">
                     <div className="form-group"><label className="form-label">Nome do Cliente</label><input className="form-input" value={form.customerName} onChange={e => setF('customerName', e.target.value)} placeholder="Nome completo" /></div>
@@ -7757,6 +7771,32 @@ function VendasPage({ storeId, storeName, inventory, vendas, vendedoras, campanh
                             </div>
                         </div>
                     )}
+                    <div style={{ borderTop:'1px solid var(--border)', paddingTop:'1.5rem', marginTop:'1.5rem', marginBottom:'1.5rem' }}>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem', flexWrap:'wrap', gap:'0.5rem' }}>
+                            <div style={{ fontWeight:'700' }}>💳 Finalização / Pagamento</div>
+                            {pagamentos.length < 2 && <button type="button" className="btn btn-secondary btn-small" onClick={addPag}>➕ 2ª forma de pagamento</button>}
+                        </div>
+                        {pagamentos.map((p, i) => (
+                            <div key={i} className="form-row" style={{ alignItems:'flex-end' }}>
+                                <div className="form-group"><label className="form-label">Forma{pagamentos.length > 1 ? ' ' + (i + 1) : ''}</label>
+                                    <select className="form-select" value={p.forma} onChange={e => setPag(i, 'forma', e.target.value)}>
+                                        {FORMAS_PGTO.map(f => <option key={f}>{f}</option>)}
+                                    </select>
+                                </div>
+                                <div className="form-group"><label className="form-label">Valor (R$)</label><input type="text" inputMode="decimal" className="form-input" value={p.valor} onChange={e => setPag(i, 'valor', e.target.value)} placeholder={pagamentos.length === 1 ? fmt(total) + ' (total)' : '0,00'} /></div>
+                                {p.forma === 'Crédito Parcelado' && (
+                                    <div className="form-group"><label className="form-label">Parcelas</label><input type="number" min="1" max="12" className="form-input" value={p.parcelas} onChange={e => setPag(i, 'parcelas', e.target.value)} style={{ maxWidth:'90px' }} /></div>
+                                )}
+                                {pagamentos.length > 1 && <div className="form-group" style={{ display:'flex', alignItems:'flex-end' }}><button type="button" className="btn btn-danger btn-small" onClick={() => rmPag(i)}>🗑️</button></div>}
+                            </div>
+                        ))}
+                        <div style={{ display:'flex', justifyContent:'space-between', padding:'0.75rem 1rem', background:'var(--bg-dark)', borderRadius:'10px', fontWeight:'700' }}>
+                            <span>Total informado: {fmt(pagamentos.length === 1 && !totalPago ? total : totalPago)}</span>
+                            <span style={{ color: (pagamentos.length === 1 && !totalPago) || Math.abs(restante) < 0.01 ? 'var(--success)' : 'var(--danger)' }}>
+                                {pagamentos.length === 1 && !totalPago ? 'OK (usa o total)' : (restante > 0.009 ? 'Falta ' + fmt(restante) : restante < -0.009 ? 'Troco/Excedente ' + fmt(-restante) : '✓ Confere')}
+                            </span>
+                        </div>
+                    </div>
                     <button className="btn btn-success" style={{ width:'100%' }} onClick={handleSave} disabled={saving}>{saving ? '⏳ Salvando...' : '✅ Registrar Venda'}</button>
                 </div>
             </div>
