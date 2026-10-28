@@ -1904,8 +1904,8 @@ function NewExchangePage({ storeId, storeName, inventory, vendedoras, showToast 
     const [outgoingItems, setOutgoingItems] = useState([]);
     const [incomingItems, setIncomingItems] = useState([]);
     const [photos, setPhotos] = useState([]);
-    const [newOut, setNewOut] = useState({ description: '', value: '', qty: '1' });
-    const [newIn, setNewIn] = useState({ description: '', value: '', condition: 'Novo', qty: '1' });
+    const [newOut, setNewOut] = useState({ barcode: '', description: '', value: '', qty: '1' });
+    const [newIn, setNewIn] = useState({ barcode: '', description: '', value: '', condition: 'Novo', qty: '1' });
     const [saving, setSaving] = useState(false);
     const [printTicket, setPrintTicket] = useState(null);
 
@@ -1917,26 +1917,40 @@ function NewExchangePage({ storeId, storeName, inventory, vendedoras, showToast 
         const v = (value || '').trim().toUpperCase();
         return inventory.find(p => (p.product || '').trim().toUpperCase() === v);
     };
+    const acharPorBarcode = (code) => {
+        const cc = (code || '').trim();
+        return inventory.find(p => (p.barcode || '').trim() === cc);
+    };
     const handleDescOut = (value) => {
         const found = acharProduto(value);
-        setNewOut(prev => ({ ...prev, description: value, value: found && num(found.price) > 0 ? String(found.price) : prev.value }));
+        setNewOut(prev => ({ ...prev, description: value, barcode: found ? (found.barcode || '') : prev.barcode, value: found && num(found.price) > 0 ? String(found.price) : prev.value }));
     };
     const handleDescIn = (value) => {
         const found = acharProduto(value);
-        setNewIn(prev => ({ ...prev, description: value, value: found && num(found.price) > 0 ? String(found.price) : prev.value }));
+        setNewIn(prev => ({ ...prev, description: value, barcode: found ? (found.barcode || '') : prev.barcode, value: found && num(found.price) > 0 ? String(found.price) : prev.value }));
+    };
+    const handleBarcodeOut = (code) => {
+        const found = acharPorBarcode(code);
+        if (found) setNewOut(prev => ({ ...prev, barcode: code, description: found.product, value: num(found.price) > 0 ? String(found.price) : prev.value }));
+        else setNewOut(prev => ({ ...prev, barcode: code }));
+    };
+    const handleBarcodeIn = (code) => {
+        const found = acharPorBarcode(code);
+        if (found) setNewIn(prev => ({ ...prev, barcode: code, description: found.product, value: num(found.price) > 0 ? String(found.price) : prev.value }));
+        else setNewIn(prev => ({ ...prev, barcode: code }));
     };
 
     const addOut = () => {
         if (!newOut.description || !newOut.value) return;
         const qty = parseInt(newOut.qty) || 1;
-        setOutgoingItems(prev => [...prev, { id: Date.now(), description: newOut.description, value: parseFloat(newOut.value), qty }]);
-        setNewOut({ description: '', value: '', qty: '1' });
+        setOutgoingItems(prev => [...prev, { id: Date.now(), barcode: newOut.barcode || '', description: newOut.description, value: parseFloat(newOut.value), qty }]);
+        setNewOut({ barcode: '', description: '', value: '', qty: '1' });
     };
     const addIn = () => {
         if (!newIn.description || !newIn.value) return;
         const qty = parseInt(newIn.qty) || 1;
-        setIncomingItems(prev => [...prev, { id: Date.now(), description: newIn.description, value: parseFloat(newIn.value), condition: newIn.condition, qty }]);
-        setNewIn({ description: '', value: '', condition: 'Novo', qty: '1' });
+        setIncomingItems(prev => [...prev, { id: Date.now(), barcode: newIn.barcode || '', description: newIn.description, value: parseFloat(newIn.value), condition: newIn.condition, qty }]);
+        setNewIn({ barcode: '', description: '', value: '', condition: 'Novo', qty: '1' });
     };
     const handlePhoto = (e) => {
         Array.from(e.target.files).forEach(file => {
@@ -2012,6 +2026,7 @@ function NewExchangePage({ storeId, storeName, inventory, vendedoras, showToast 
                 <div className="card">
                     <h2 className="card-title">📤 Produtos de Saida</h2>
                     <div className="form-row">
+                        <div className="form-group"><label className="form-label">📷 Código de Barras</label><input type="text" className="form-input" value={newOut.barcode} onChange={e => handleBarcodeOut(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addOut(); } }} placeholder="Bipe ou digite o código" /></div>
                         <div className="form-group"><label className="form-label">Descricao</label><input type="text" className="form-input" value={newOut.description} onChange={e => handleDescOut(e.target.value)} placeholder="Nome do produto" list="inv-list" /></div>
                         <div className="form-group"><label className="form-label">Qtd</label><input type="number" min="1" className="form-input" value={newOut.qty} onChange={e => setNewOut({...newOut, qty: e.target.value})} style={{ maxWidth:'90px' }} /></div>
                         <div className="form-group"><label className="form-label">Valor Unit. (R$)</label><input type="number" step="0.01" className="form-input" value={newOut.value} onChange={e => setNewOut({...newOut, value: e.target.value})} placeholder="0.00" /></div>
@@ -2033,6 +2048,7 @@ function NewExchangePage({ storeId, storeName, inventory, vendedoras, showToast 
                 <div className="card">
                     <h2 className="card-title">📥 Produtos de Entrada</h2>
                     <div className="form-row">
+                        <div className="form-group"><label className="form-label">📷 Código de Barras</label><input type="text" className="form-input" value={newIn.barcode} onChange={e => handleBarcodeIn(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addIn(); } }} placeholder="Bipe ou digite o código" /></div>
                         <div className="form-group"><label className="form-label">Descricao</label><input type="text" className="form-input" value={newIn.description} onChange={e => handleDescIn(e.target.value)} placeholder="Nome do produto" list="inv-list" /></div>
                         <div className="form-group"><label className="form-label">Qtd</label><input type="number" min="1" className="form-input" value={newIn.qty} onChange={e => setNewIn({...newIn, qty: e.target.value})} style={{ maxWidth:'90px' }} /></div>
                         <div className="form-group"><label className="form-label">Valor Unit. (R$)</label><input type="number" step="0.01" className="form-input" value={newIn.value} onChange={e => setNewIn({...newIn, value: e.target.value})} placeholder="0.00" /></div>
@@ -7479,14 +7495,14 @@ function VendasPage({ storeId, storeName, inventory, vendas, vendedoras, campanh
         if (k) { setDescTipo(k.tipo); setDescInput(String(k.valor)); setDescMotivo('Campanha: ' + k.nome); setDescItem(''); }
         else { setDescTipo('nenhum'); setDescInput(''); setDescMotivo(''); }
     };
-    const campSelecionada = (campanhas || []).find(c => String(c.id) === String(campanhaId));
-    const produtosDisponiveis = (campSelecionada && campSelecionada.produtos && campSelecionada.produtos.length > 0)
-        ? items.filter(it => campSelecionada.produtos.some(p => (p || '').trim().toUpperCase() === (it.product || '').trim().toUpperCase()))
-        : items;
     const [searchVenda, setSearchVenda] = useState('');
     const [printVenda, setPrintVenda] = useState(null);
     const [items, setItems] = useState([]);
     const [newItem, setNewItem] = useState({ barcode: '', product: '', qty: '1', valorUnit: '' });
+    const campSelecionada = (campanhas || []).find(c => String(c.id) === String(campanhaId));
+    const produtosDisponiveis = (campSelecionada && campSelecionada.produtos && campSelecionada.produtos.length > 0)
+        ? items.filter(it => campSelecionada.produtos.some(p => (p || '').trim().toUpperCase() === (it.product || '').trim().toUpperCase()))
+        : items;
     const [saving, setSaving] = useState(false);
     const [listDate, setListDate] = useState(todayStr);
 
@@ -7552,11 +7568,7 @@ function VendasPage({ storeId, storeName, inventory, vendas, vendedoras, campanh
         finally { setSaving(false); }
     };
 
-    const handleDeleteVenda = async (id) => {
-        if (!confirm('Excluir esta venda?')) return;
-        try { await window.TrocaDB.deletarVenda(storeId, id); showToast('Venda excluída'); }
-        catch { showToast('Erro ao excluir', 'error'); }
-    };
+    // Exclusão de venda lançada é exclusiva do Administrador (tela Vendas do Admin).
 
     const searching = searchVenda.trim().length > 0;
     const vendasDoDia = useMemo(() => {
@@ -7779,7 +7791,6 @@ function VendasPage({ storeId, storeName, inventory, vendas, vendedoras, campanh
                                         <td>
                                             <div style={{ display:'flex', gap:'0.5rem' }}>
                                                 <button className="btn btn-secondary btn-small" onClick={() => handlePrintVenda(v)}>🖨️</button>
-                                                <button className="btn btn-danger btn-small" onClick={() => handleDeleteVenda(v.id)}>🗑️</button>
                                             </div>
                                         </td>
                                     </tr>
@@ -8103,6 +8114,12 @@ function AdminVendasPage({ storeVendas, showToast }) {
         setTimeout(() => { window.print(); setTimeout(() => setPrintVenda(null), 500); }, 300);
     };
 
+    const handleExcluirVenda = async (v) => {
+        if (!confirm('Excluir permanentemente a venda ' + (v.ticket || '(sem ticket)') + ' da loja ' + v.storeName + '?\n\nEsta ação não pode ser desfeita.')) return;
+        try { await window.TrocaDB.deletarVenda(v.storeId, v.id); showToast('Venda excluída'); }
+        catch(e) { console.error(e); showToast('Erro ao excluir venda', 'error'); }
+    };
+
     const range = useMemo(() => {
         if (mode === 'day') return [refDate, refDate];
         if (mode === 'week') {
@@ -8295,7 +8312,7 @@ function AdminVendasPage({ storeVendas, showToast }) {
                 {filtered.length > 0 ? (
                     <div className="table-container">
                         <table className="table">
-                            <thead><tr><th>Data</th><th>Loja</th><th>Ticket</th><th>Cliente</th><th>CPF</th><th>Vendedora</th><th>Pagamento</th><th>Itens</th><th>Total</th><th></th></tr></thead>
+                            <thead><tr><th>Data</th><th>Loja</th><th>Ticket</th><th>Cliente</th><th>CPF</th><th>Vendedora</th><th>Pagamento</th><th>Itens</th><th>Total</th><th>Ações</th></tr></thead>
                             <tbody>
                                 {filtered.map(v => (
                                     <tr key={v.storeId + '-' + v.id}>
@@ -8308,7 +8325,7 @@ function AdminVendasPage({ storeVendas, showToast }) {
                                         <td>{v.formaPagamento}</td>
                                         <td style={{ fontSize:'0.85rem', color:'var(--text-secondary)' }}>{(v.items || []).map(i => i.qty + 'x ' + i.product).join(', ')}</td>
                                         <td style={{ fontWeight:'700', color:'var(--success)' }}>{fmt(v.total)}</td>
-                                        <td><button className="btn btn-secondary btn-small" onClick={() => handlePrintVenda(v)}>🖨️</button></td>
+                                        <td><div style={{ display:'flex', gap:'0.4rem' }}><button className="btn btn-secondary btn-small" onClick={() => handlePrintVenda(v)}>🖨️</button><button className="btn btn-danger btn-small" onClick={() => handleExcluirVenda(v)}>🗑️</button></div></td>
                                     </tr>
                                 ))}
                             </tbody>
