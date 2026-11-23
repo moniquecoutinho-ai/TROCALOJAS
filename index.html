@@ -7382,6 +7382,7 @@ function AdminMetasPage({ metas, metasVend, metasConfig, storeFechamentos, store
     const [savingVend, setSavingVend] = useState(false);
     const [tm, setTm] = useState('250');
     const [diasAbertos, setDiasAbertos] = useState({});
+    const [diasRestantes, setDiasRestantes] = useState({});
 
     useEffect(() => {
         const v = {};
@@ -7391,9 +7392,13 @@ function AdminMetasPage({ metas, metasVend, metasConfig, storeFechamentos, store
 
     useEffect(() => {
         setTm(String((metasConfig && metasConfig.tm) || 250));
-        const d = {};
-        STORES.forEach(s => { d[s.id] = String((((metasConfig && metasConfig.dias) || {})[s.id] || {})[month] || ''); });
+        const d = {}, dr = {};
+        STORES.forEach(s => {
+            d[s.id] = String((((metasConfig && metasConfig.dias) || {})[s.id] || {})[month] || '');
+            dr[s.id] = String((((metasConfig && metasConfig.diasRest) || {})[s.id] || {})[month] || '');
+        });
         setDiasAbertos(d);
+        setDiasRestantes(dr);
     }, [metasConfig, month]);
 
     useEffect(() => {
@@ -7452,20 +7457,32 @@ function AdminMetasPage({ metas, metasVend, metasConfig, storeFechamentos, store
         });
         return res;
     }, [storeVendas]);
+    // Dias restantes padrao: se o mes selecionado e o atual, conta de hoje ate o fim; senao, mes cheio
+    const hojeD = new Date();
+    const ehMesAtual = (hojeD.getFullYear() + '-' + String(hojeD.getMonth() + 1).padStart(2, '0')) === month;
+    const ehMesPassado = month < (hojeD.getFullYear() + '-' + String(hojeD.getMonth() + 1).padStart(2, '0'));
+    const restPadrao = ehMesAtual ? Math.max(1, diasNoMes - hojeD.getDate() + 1) : (ehMesPassado ? 0 : diasNoMes);
+    const getRest = (sid) => {
+        const manual = parseInt(diasRestantes[sid]);
+        if (manual > 0) return manual;
+        return restPadrao;
+    };
     const calcLoja = (sid) => {
         const meta = num(values[sid]);
-        const dias = parseInt(diasAbertos[sid]) || 0;
+        const da = parseInt(diasAbertos[sid]) || 0;
+        const dRest = getRest(sid);
         const realizado = num(realizadoLoja[sid]);
         const falta = Math.max(meta - realizado, 0);
         const clientesMeta = tmNum > 0 ? meta / tmNum : 0;
         const clientesFalta = tmNum > 0 ? falta / tmNum : 0;
         return {
-            meta, dias, realizado, falta,
+            meta, da, dRest, realizado, falta,
             pct: meta > 0 ? (realizado / meta) * 100 : 0,
             clientesMeta,
-            clientesDiaPlano: dias > 0 ? clientesMeta / dias : 0,
-            clientesDiaFalta: dias > 0 ? clientesFalta / dias : 0,
-            metaDiaFalta: dias > 0 ? falta / dias : 0
+            metaDiaPlano: da > 0 ? meta / da : 0,
+            clientesDiaPlano: da > 0 ? clientesMeta / da : 0,
+            precisaDiaReais: dRest > 0 ? falta / dRest : 0,
+            precisaDiaClientes: dRest > 0 ? clientesFalta / dRest : 0
         };
     };
 
@@ -7479,8 +7496,12 @@ function AdminMetasPage({ metas, metasVend, metasConfig, storeFechamentos, store
             });
             await window.TrocaDB.salvarMetas(novo);
             const dias = JSON.parse(JSON.stringify((metasConfig && metasConfig.dias) || {}));
-            STORES.forEach(s => { if (!dias[s.id]) dias[s.id] = {}; dias[s.id][month] = parseInt(diasAbertos[s.id]) || 0; });
-            await window.TrocaDB.salvarMetasConfig({ tm: tmNum, dias });
+            const diasR = JSON.parse(JSON.stringify((metasConfig && metasConfig.diasRest) || {}));
+            STORES.forEach(s => {
+                if (!dias[s.id]) dias[s.id] = {}; dias[s.id][month] = parseInt(diasAbertos[s.id]) || 0;
+                if (!diasR[s.id]) diasR[s.id] = {}; diasR[s.id][month] = getRest(s.id);
+            });
+            await window.TrocaDB.salvarMetasConfig({ tm: tmNum, dias, diasRest: diasR });
             showToast('Metas salvas! As lojas já veem o objetivo do dia. ✅');
         } catch(e) { console.error(e); showToast('Erro ao salvar metas', 'error'); }
         finally { setSaving(false); }
@@ -7529,18 +7550,18 @@ function AdminMetasPage({ metas, metasVend, metasConfig, storeFechamentos, store
                         <thead><tr>
                             <th>Loja</th>
                             <th>Meta Mensal (R$)</th>
-                            <th>Dias abertos</th>
-                            <th>Clientes p/ meta<br/><span style={{ fontWeight:'400', fontSize:'0.72rem', color:'var(--text-muted)' }}>meta ÷ TM</span></th>
+                            <th>Dias abertos<br/><span style={{ fontWeight:'400', fontSize:'0.72rem', color:'var(--text-muted)' }}>no mês</span></th>
+                            <th>Dias restantes<br/><span style={{ fontWeight:'400', fontSize:'0.72rem', color:'var(--text-muted)' }}>ainda vai abrir</span></th>
                             <th>Realizado</th>
                             <th>Falta</th>
-                            <th>Precisa/dia<br/><span style={{ fontWeight:'400', fontSize:'0.72rem', color:'var(--text-muted)' }}>clientes p/ bater</span></th>
+                            <th>Precisa/dia<br/><span style={{ fontWeight:'400', fontSize:'0.72rem', color:'var(--text-muted)' }}>p/ bater a meta do mês</span></th>
                             <th>Histórico<br/><span style={{ fontWeight:'400', fontSize:'0.72rem', color:'var(--text-muted)' }}>média real (8 sem.)</span></th>
                         </tr></thead>
                         <tbody>
                             {STORES.map(s => {
                                 const c = calcLoja(s.id);
                                 const h = histLoja[s.id] || { vendasSemana: 0, vendasDia: 0, total: 0 };
-                                const precisa = c.clientesDiaFalta;
+                                const precisa = c.precisaDiaClientes;
                                 let feas = null;
                                 if (precisa > 0 && h.vendasDia > 0) {
                                     if (precisa <= h.vendasDia * 1.05) feas = { txt: '✓ dentro da média', cor: 'var(--success)' };
@@ -7548,15 +7569,15 @@ function AdminMetasPage({ metas, metasVend, metasConfig, storeFechamentos, store
                                 }
                                 return (
                                 <tr key={s.id}>
-                                    <td style={{ fontWeight:'700' }}>{s.name}</td>
+                                    <td style={{ fontWeight:'700' }}>{s.name}{c.clientesMeta > 0 && <div style={{ fontSize:'0.72rem', color:'var(--text-muted)', fontWeight:'400' }}>{Math.ceil(c.clientesMeta)} clientes no mês</div>}</td>
                                     <td><input type="text" inputMode="decimal" className="form-input" style={{ maxWidth:'140px' }} value={values[s.id] || ''} onChange={e => setValues(p => ({ ...p, [s.id]: e.target.value }))} placeholder="Ex: 200.000,00" /></td>
-                                    <td><input type="number" min="0" className="form-input" style={{ maxWidth:'80px' }} value={diasAbertos[s.id] || ''} onChange={e => setDiasAbertos(p => ({ ...p, [s.id]: e.target.value }))} placeholder="dias" /></td>
-                                    <td style={{ fontWeight:'700' }}>{c.clientesMeta > 0 ? Math.ceil(c.clientesMeta) : '-'}</td>
+                                    <td><input type="number" min="0" className="form-input" style={{ maxWidth:'80px' }} value={diasAbertos[s.id] || ''} onChange={e => setDiasAbertos(p => ({ ...p, [s.id]: e.target.value }))} placeholder="dias" />{c.metaDiaPlano > 0 && <div style={{ fontSize:'0.7rem', color:'var(--text-muted)', marginTop:'0.2rem' }}>plano {fmt(c.metaDiaPlano)}/dia</div>}</td>
+                                    <td><input type="number" min="0" className="form-input" style={{ maxWidth:'80px' }} value={diasRestantes[s.id] || ''} onChange={e => setDiasRestantes(p => ({ ...p, [s.id]: e.target.value }))} placeholder={String(restPadrao)} /><div style={{ fontSize:'0.7rem', color:'var(--text-muted)', marginTop:'0.2rem' }}>{diasRestantes[s.id] ? 'definido' : 'auto: ' + restPadrao}</div></td>
                                     <td style={{ color:'var(--success)' }}>{c.realizado > 0 ? fmt(c.realizado) : '-'}{c.meta > 0 && <div style={{ fontSize:'0.75rem', color:'var(--text-muted)' }}>{c.pct.toFixed(0)}% da meta</div>}</td>
                                     <td style={{ color: c.falta > 0 ? 'var(--danger)' : 'var(--success)', fontWeight:'700' }}>{c.meta > 0 ? (c.falta > 0 ? fmt(c.falta) : '✓ batida') : '-'}</td>
                                     <td style={{ color:'var(--accent)', fontWeight:'800' }}>
-                                        {precisa > 0 ? Math.ceil(precisa) + ' /dia' : (c.meta > 0 && c.falta === 0 ? '✓' : '-')}
-                                        {c.metaDiaFalta > 0 && <div style={{ fontSize:'0.72rem', color:'var(--text-muted)', fontWeight:'400' }}>{fmt(c.metaDiaFalta)}/dia</div>}
+                                        {c.falta <= 0 && c.meta > 0 ? '✓ batida' : (precisa > 0 ? Math.ceil(precisa) + ' clientes/dia' : '-')}
+                                        {c.precisaDiaReais > 0 && c.falta > 0 && <div style={{ fontSize:'0.75rem', color:'var(--danger)', fontWeight:'700' }}>{fmt(c.precisaDiaReais)}/dia</div>}
                                         {feas && <div style={{ fontSize:'0.72rem', color: feas.cor, fontWeight:'700', marginTop:'0.15rem' }}>{feas.txt}</div>}
                                     </td>
                                     <td>
