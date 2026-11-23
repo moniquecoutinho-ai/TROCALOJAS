@@ -896,6 +896,18 @@
         }, function() { callback({}); });
     }
 
+    // ===== CONFIG DE METAS (TM editavel + dias abertos por loja/mes) =====
+    async function salvarMetasConfig(cfg) {
+        const ref = db.collection("config").doc("metas_config");
+        await ref.set({ ...cfg, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+    }
+    function ouvirMetasConfig(callback) {
+        const ref = db.collection("config").doc("metas_config");
+        return ref.onSnapshot(function(snap) {
+            callback(snap.exists ? (snap.data() || {}) : {});
+        }, function() { callback({}); });
+    }
+
     window.TrocaDB = {
         salvarTroca, atualizarStatus, atualizarTroca, deletarTroca,
         ouvirTrocas, ouvirTodasLojas, salvarEstoque, ouvirEstoque, getEstoque,
@@ -905,7 +917,7 @@
         salvarVendasCurva, ouvirVendasCurva, ouvirTodasVendasCurva,
         salvarCampanhas, ouvirCampanhas,
         salvarFechamento, getFechamento, ouvirTodosFechamentos, ouvirFechamentosLoja,
-        salvarMetas, ouvirMetas, salvarMetasVendedoras, ouvirMetasVendedoras,
+        salvarMetas, ouvirMetas, salvarMetasVendedoras, ouvirMetasVendedoras, salvarMetasConfig, ouvirMetasConfig,
         salvarVenda, deletarVenda, atualizarVenda, proximoTicket, ouvirVendas, ouvirTodasVendas,
         salvarVendedoras, ouvirVendedoras,
         salvarFrete, atualizarFrete, deletarFrete, ouvirTodosFretes,
@@ -1300,6 +1312,7 @@ function AdminView({ onLogout, showToast }) {
     const [storeVendasCurva, setStoreVendasCurva] = useState({});
     const [metas, setMetas] = useState({});
     const [metasVend, setMetasVend] = useState({});
+    const [metasConfig, setMetasConfig] = useState({});
     const [selectedStore, setSelectedStore] = useState('all');
     const [selectedExchange, setSelectedExchange] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -1362,6 +1375,7 @@ function AdminView({ onLogout, showToast }) {
             }));
             unsubs.push(window.TrocaDB.ouvirMetas((m) => setMetas(m || {})));
             unsubs.push(window.TrocaDB.ouvirMetasVendedoras((m) => setMetasVend(m || {})));
+            unsubs.push(window.TrocaDB.ouvirMetasConfig((cfg) => setMetasConfig(cfg || {})));
         } catch(e) { console.error(e); setLoading(false); }
         unsubRef.current = () => unsubs.forEach(u => u && u());
         return () => unsubRef.current && unsubRef.current();
@@ -1498,7 +1512,7 @@ function AdminView({ onLogout, showToast }) {
                     <AdminFechamentosPage storeFechamentos={storeFechamentos} storeExchanges={storeExchanges} metas={metas} showToast={showToast} />
                 )}
                 {adminPage === 'metas' && (
-                    <AdminMetasPage metas={metas} metasVend={metasVend} showToast={showToast} />
+                    <AdminMetasPage metas={metas} metasVend={metasVend} metasConfig={metasConfig} storeFechamentos={storeFechamentos} showToast={showToast} />
                 )}
                 {adminPage === 'acompanhamento' && (
                     <AcompanhamentoVendedorasPage storeFechamentos={storeFechamentos} metas={metas} metasVend={metasVend} showToast={showToast} />
@@ -7357,7 +7371,7 @@ function AcompanhamentoVendedorasPage({ storeFechamentos, metas, metasVend, show
     );
 }
 
-function AdminMetasPage({ metas, metasVend, showToast }) {
+function AdminMetasPage({ metas, metasVend, metasConfig, storeFechamentos, showToast }) {
     const now = new Date();
     const [month, setMonth] = useState(now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0'));
     const [values, setValues] = useState({});
@@ -7366,12 +7380,21 @@ function AdminMetasPage({ metas, metasVend, showToast }) {
     const [vendedorasLoja, setVendedorasLoja] = useState([]);
     const [valuesVend, setValuesVend] = useState({});
     const [savingVend, setSavingVend] = useState(false);
+    const [tm, setTm] = useState('250');
+    const [diasAbertos, setDiasAbertos] = useState({});
 
     useEffect(() => {
         const v = {};
         STORES.forEach(s => { v[s.id] = (((metas || {})[s.id]) || {})[month] || ''; });
         setValues(v);
     }, [metas, month]);
+
+    useEffect(() => {
+        setTm(String((metasConfig && metasConfig.tm) || 250));
+        const d = {};
+        STORES.forEach(s => { d[s.id] = String((((metasConfig && metasConfig.dias) || {})[s.id] || {})[month] || ''); });
+        setDiasAbertos(d);
+    }, [metasConfig, month]);
 
     useEffect(() => {
         const unsub = window.TrocaDB.ouvirVendedoras(lojaVendSel, (v) => setVendedorasLoja((v || []).filter(x => !x.arquivada)));
@@ -7389,6 +7412,32 @@ function AdminMetasPage({ metas, metasVend, showToast }) {
     const mParts = month.split('-');
     const diasNoMes = new Date(parseInt(mParts[0]), parseInt(mParts[1]), 0).getDate();
     const totalMetas = STORES.reduce((s, st) => s + num(values[st.id]), 0);
+    const tmNum = num(tm) || 250;
+    const realizadoLoja = useMemo(() => {
+        const r = {};
+        STORES.forEach(s => {
+            r[s.id] = (storeFechamentos[s.id] || [])
+                .filter(f => f.date && f.date.slice(0, 7) === month)
+                .reduce((sum, f) => sum + calcFechTotais(f).totalVendido, 0);
+        });
+        return r;
+    }, [storeFechamentos, month]);
+    const calcLoja = (sid) => {
+        const meta = num(values[sid]);
+        const dias = parseInt(diasAbertos[sid]) || 0;
+        const realizado = num(realizadoLoja[sid]);
+        const falta = Math.max(meta - realizado, 0);
+        const clientesMeta = tmNum > 0 ? meta / tmNum : 0;
+        const clientesFalta = tmNum > 0 ? falta / tmNum : 0;
+        return {
+            meta, dias, realizado, falta,
+            pct: meta > 0 ? (realizado / meta) * 100 : 0,
+            clientesMeta,
+            clientesDiaPlano: dias > 0 ? clientesMeta / dias : 0,
+            clientesDiaFalta: dias > 0 ? clientesFalta / dias : 0,
+            metaDiaFalta: dias > 0 ? falta / dias : 0
+        };
+    };
 
     const handleSave = async () => {
         setSaving(true);
@@ -7399,6 +7448,9 @@ function AdminMetasPage({ metas, metasVend, showToast }) {
                 novo[s.id][month] = num(values[s.id]);
             });
             await window.TrocaDB.salvarMetas(novo);
+            const dias = JSON.parse(JSON.stringify((metasConfig && metasConfig.dias) || {}));
+            STORES.forEach(s => { if (!dias[s.id]) dias[s.id] = {}; dias[s.id][month] = parseInt(diasAbertos[s.id]) || 0; });
+            await window.TrocaDB.salvarMetasConfig({ tm: tmNum, dias });
             showToast('Metas salvas! As lojas já veem o objetivo do dia. ✅');
         } catch(e) { console.error(e); showToast('Erro ao salvar metas', 'error'); }
         finally { setSaving(false); }
@@ -7435,26 +7487,41 @@ function AdminMetasPage({ metas, metasVend, showToast }) {
         <div>
             <div className="header">
                 <h1 className="page-title">🎯 Metas das Lojas</h1>
-                <p className="page-subtitle">Lance a meta mensal — o objetivo do dia é calculado automaticamente (meta ÷ {diasNoMes} dias)</p>
+                <p className="page-subtitle">Defina a meta e os dias que a loja estará aberta. O sistema calcula os clientes necessários pelo TM e, pelo realizado de cada loja, quantos clientes/dia faltam para bater a meta.</p>
             </div>
             <div className="card">
                 <div className="form-row">
                     <div className="form-group"><label className="form-label">Mês</label><input type="month" className="form-input" value={month} onChange={e => setMonth(e.target.value)} /></div>
+                    <div className="form-group"><label className="form-label">🎟️ Ticket Médio (TM) — editável</label><input type="text" inputMode="decimal" className="form-input" value={tm} onChange={e => setTm(e.target.value)} placeholder="250,00" /><div style={{ fontSize:'0.8rem', color:'var(--text-muted)', marginTop:'0.25rem' }}>= {fmt(tmNum)} por cliente</div></div>
                 </div>
                 <div className="table-container">
-                    <table className="table">
-                        <thead><tr><th>Loja</th><th>Meta Mensal (R$)</th><th>Objetivo do Dia (auto)</th></tr></thead>
+                    <table className="table" style={{ fontSize:'0.9rem' }}>
+                        <thead><tr>
+                            <th>Loja</th>
+                            <th>Meta Mensal (R$)</th>
+                            <th>Dias abertos</th>
+                            <th>Clientes p/ meta<br/><span style={{ fontWeight:'400', fontSize:'0.72rem', color:'var(--text-muted)' }}>meta ÷ TM</span></th>
+                            <th>Realizado</th>
+                            <th>Falta</th>
+                            <th>Clientes/dia<br/><span style={{ fontWeight:'400', fontSize:'0.72rem', color:'var(--text-muted)' }}>p/ bater o que falta</span></th>
+                            <th>Meta diária (R$)</th>
+                        </tr></thead>
                         <tbody>
-                            {STORES.map(s => (
+                            {STORES.map(s => {
+                                const c = calcLoja(s.id);
+                                return (
                                 <tr key={s.id}>
                                     <td style={{ fontWeight:'700' }}>{s.name}</td>
-                                    <td>
-                                        <input type="text" inputMode="decimal" className="form-input" style={{ maxWidth:'220px' }} value={values[s.id] || ''} onChange={e => setValues(p => ({ ...p, [s.id]: e.target.value }))} placeholder="Ex: 165.315,00" />
-                                        {num(values[s.id]) > 0 && <div style={{ fontSize:'0.8rem', color:'var(--text-muted)', marginTop:'0.25rem' }}>= {fmt(num(values[s.id]))}</div>}
-                                    </td>
-                                    <td style={{ color:'var(--accent)', fontWeight:'700' }}>{num(values[s.id]) > 0 ? fmt(num(values[s.id]) / diasNoMes) : '-'}</td>
+                                    <td><input type="text" inputMode="decimal" className="form-input" style={{ maxWidth:'140px' }} value={values[s.id] || ''} onChange={e => setValues(p => ({ ...p, [s.id]: e.target.value }))} placeholder="Ex: 200.000,00" /></td>
+                                    <td><input type="number" min="0" className="form-input" style={{ maxWidth:'80px' }} value={diasAbertos[s.id] || ''} onChange={e => setDiasAbertos(p => ({ ...p, [s.id]: e.target.value }))} placeholder="dias" /></td>
+                                    <td style={{ fontWeight:'700' }}>{c.clientesMeta > 0 ? Math.ceil(c.clientesMeta) : '-'}</td>
+                                    <td style={{ color:'var(--success)' }}>{c.realizado > 0 ? fmt(c.realizado) : '-'}{c.meta > 0 && <div style={{ fontSize:'0.75rem', color:'var(--text-muted)' }}>{c.pct.toFixed(0)}% da meta</div>}</td>
+                                    <td style={{ color: c.falta > 0 ? 'var(--danger)' : 'var(--success)', fontWeight:'700' }}>{c.meta > 0 ? (c.falta > 0 ? fmt(c.falta) : '✓ batida') : '-'}</td>
+                                    <td style={{ color:'var(--accent)', fontWeight:'800' }}>{c.clientesDiaFalta > 0 ? Math.ceil(c.clientesDiaFalta) + ' /dia' : (c.meta > 0 && c.falta === 0 ? '✓' : '-')}{c.clientesDiaPlano > 0 && <div style={{ fontSize:'0.72rem', color:'var(--text-muted)', fontWeight:'400' }}>plano cheio: {Math.ceil(c.clientesDiaPlano)}/dia</div>}</td>
+                                    <td style={{ fontWeight:'700' }}>{c.metaDiaFalta > 0 ? fmt(c.metaDiaFalta) : '-'}</td>
                                 </tr>
-                            ))}
+                                );
+                            })}
                         </tbody>
                     </table>
                 </div>
